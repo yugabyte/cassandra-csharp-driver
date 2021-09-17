@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,9 +14,6 @@
 //   limitations under the License.
 //
 
-using System;
-using System.Threading;
-
 namespace Cassandra
 {
     /// <summary>
@@ -24,8 +21,10 @@ namespace Cassandra
     /// </summary>
     public class ClientOptions
     {
+        public const int DefaultQueryAbortTimeout = 60000;
+
         private readonly string _defaultKeyspace;
-        private readonly int _queryAbortTimeout = 60000;
+        private readonly int _queryAbortTimeout = ClientOptions.DefaultQueryAbortTimeout;
         private readonly bool _withoutRowSetBuffering;
 
         public bool WithoutRowSetBuffering
@@ -58,22 +57,6 @@ namespace Cassandra
             _withoutRowSetBuffering = withoutRowSetBuffering;
             _queryAbortTimeout = queryAbortTimeout;
             _defaultKeyspace = defaultKeyspace;
-        }
-
-        /// <summary>
-        /// Returns the timeout in milliseconds based on the amount of queries.
-        /// </summary>
-        internal int GetQueryAbortTimeout(int amountOfQueries)
-        {
-            if (amountOfQueries <= 0)
-            {
-                throw new ArgumentException("The amount of queries must be a positive number");
-            }
-            if (_queryAbortTimeout == Timeout.Infinite)
-            {
-                return _queryAbortTimeout;
-            }
-            return _queryAbortTimeout*amountOfQueries;
         }
     }
 }

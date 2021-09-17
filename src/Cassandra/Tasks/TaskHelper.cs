@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ using System;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Cassandra.Connections;
+using Cassandra.Metrics.Internal;
 
 namespace Cassandra.Tasks
 {
@@ -66,10 +68,7 @@ namespace Cassandra.Tasks
                     tcs.TrySetResult(task.Result);
                 }
 
-                if (callback != null)
-                {
-                    callback(tcs.Task);
-                }
+                callback?.Invoke(tcs.Task);
 
             }, TaskContinuationOptions.ExecuteSynchronously);
             return tcs.Task;
@@ -97,7 +96,38 @@ namespace Cassandra.Tasks
         /// <exception cref="AggregateException" />
         public static T WaitToComplete<T>(Task<T> task, int timeout = Timeout.Infinite)
         {
-            WaitToComplete((Task) task, timeout);
+            TaskHelper.WaitToComplete((Task) task, timeout);
+            return task.Result;
+        }
+        
+        /// <summary>
+        /// Increments session client timeout counter in case of timeout.
+        /// </summary>
+        public static void WaitToCompleteWithMetrics(IMetricsManager manager, Task task, int timeout = Timeout.Infinite)
+        {
+            if (!(manager?.AreMetricsEnabled ?? false))
+            {
+                TaskHelper.WaitToComplete(task, timeout);
+                return;
+            }
+
+            try
+            {
+                TaskHelper.WaitToComplete(task, timeout);
+            }
+            catch (TimeoutException)
+            {
+                manager.GetSessionMetrics().CqlClientTimeouts.Increment();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Increments session client timeout counter in case of timeout.
+        /// </summary>
+        public static T WaitToCompleteWithMetrics<T>(IMetricsManager manager, Task<T> task, int timeout = Timeout.Infinite)
+        {
+            TaskHelper.WaitToCompleteWithMetrics(manager, (Task) task, timeout);
             return task.Result;
         }
 
@@ -147,6 +177,12 @@ namespace Cassandra.Tasks
         public static async Task WaitToCompleteAsync(this Task task, int timeout = Timeout.Infinite)
         {
             //It should wait and throw any exception
+            if (timeout == Timeout.Infinite)
+            {
+                await task.ConfigureAwait(false);
+                return;
+            }
+
             try
             {
                 var timeoutTask = Task.Delay(TimeSpan.FromMilliseconds(timeout));
@@ -177,6 +213,21 @@ namespace Cassandra.Tasks
             if (ex != null)
             {
                 tcs.TrySetException(ex);
+            }
+            else
+            {
+                tcs.TrySetResult(result);
+            }
+        }
+        
+        /// <summary>
+        /// Attempts to transition the underlying Task to RanToCompletion or Faulted state.
+        /// </summary>
+        public static void TrySetRequestError<T>(this TaskCompletionSource<T> tcs, IRequestError error, T result)
+        {
+            if (error?.Exception != null)
+            {
+                tcs.TrySetException(error.Exception);
             }
             else
             {
@@ -248,6 +299,14 @@ namespace Cassandra.Tasks
             }, options);
 
             return tcs.Task;
+        }
+
+        /// <summary>
+        /// Checks whether the task has finished.
+        /// </summary>
+        public static bool HasFinished(this Task task)
+        {
+            return task.IsCompleted || task.IsCanceled || task.IsFaulted;
         }
 
         private static void DoNextThen<TIn, TOut>(TaskCompletionSource<TOut> tcs, Task<TIn> previousTask, Func<TIn, Task<TOut>> next, TaskContinuationOptions options)
@@ -420,6 +479,32 @@ namespace Cassandra.Tasks
         public static CancellationToken CancelTokenAfterDelay(TimeSpan timespan)
         {
             return new CancellationTokenSource(timespan).Token;
+        }
+
+        /// <summary>
+        /// Calls <code>Task.Delay</code> with a cancellation token.
+        /// </summary>
+        /// <returns><code>true</code> if delay ran to completion; <code>false</code> if delay was canceled.</returns>
+        public static async Task<bool> DelayWithCancellation(TimeSpan delayTimeSpan, CancellationToken token)
+        {
+            try
+            {
+                await Task.Delay(delayTimeSpan, token).ConfigureAwait(false);
+                return true;
+            }
+            catch (TaskCanceledException)
+            {
+                return false;
+            }
+        }
+
+        public static Func<Task> ActionToAsync(Action act)
+        {
+            return () =>
+            {
+                act();
+                return TaskHelper.Completed;
+            };
         }
     }
 }

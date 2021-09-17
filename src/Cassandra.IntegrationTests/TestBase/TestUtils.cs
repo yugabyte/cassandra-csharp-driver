@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Cassandra.IntegrationTests.Core;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using Cassandra.Tests;
 using NUnit.Framework;
@@ -36,6 +35,7 @@ namespace Cassandra.IntegrationTests.TestBase
     /// </summary>
     internal static class TestUtils
     {
+        public static readonly Version Version40 = new Version(4, 0);
         private const int DefaultSleepIterationMs = 1000;
 
         public static readonly string CreateKeyspaceSimpleFormat =
@@ -85,9 +85,9 @@ namespace Cassandra.IntegrationTests.TestBase
         public static readonly string SELECT_ALL_FORMAT = "SELECT * FROM {0}";
         public static readonly string SELECT_WHERE_FORMAT = "SELECT * FROM {0} WHERE {1}";
 
-        public static string GetTestClusterNameBasedOnTime()
+        public static string GetTestClusterNameBasedOnRandomString()
         {
-            return "test_" + (DateTimeOffset.UtcNow.Ticks / TimeSpan.TicksPerSecond);
+            return "test_" + Randomm.RandomAlphaNum(12);
         }
 
         public static string GetUniqueKeyspaceName()
@@ -115,6 +115,20 @@ namespace Cassandra.IntegrationTests.TestBase
             return true;
         }
 
+        public static Builder NewBuilder()
+        {
+            var builder = Cluster.Builder();
+            if (TestClusterManager.CcmUseWsl)
+            {
+                builder = builder.WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(20000));
+            }
+            else
+            {
+                builder = builder.WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(10000));
+            }
+            return TestClusterManager.ShouldEnableBetaProtocolVersion() ? builder.WithBetaProtocolVersions() : builder;
+        }
+        
         public static byte[] GetBytes(string str)
         {
             byte[] bytes = new byte[str.Length*sizeof (char)];
@@ -161,7 +175,7 @@ namespace Cassandra.IntegrationTests.TestBase
             DateTime futureDateTime = DateTime.Now.AddSeconds(maxSecondsToKeepTrying);
             while (DateTime.Now < futureDateTime)
             {
-                if (IsNodeReachable(IPAddress.Parse(nodeHost), nodePort))
+                if (TestUtils.IsNodeReachable(IPAddress.Parse(nodeHost), nodePort))
                 {
                     return;
                 }
@@ -228,7 +242,7 @@ namespace Cassandra.IntegrationTests.TestBase
                     Trace.TraceInformation("Exception caught while waiting for meta data: " + e.Message);
                 }
                 Trace.TraceWarning("Waiting for node host: " + nodeHost + " to be " + expectedFinalNodeState);
-                Thread.Sleep(DefaultSleepIterationMs);
+                Thread.Sleep(TestUtils.DefaultSleepIterationMs);
             }
             string errStr = "Node host should have been " + expectedFinalNodeState + " but was not after " + maxTry + " tries!";
             Trace.TraceError(errStr);
@@ -236,22 +250,22 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static void WaitFor(string node, Cluster cluster, int maxTry)
         {
-            WaitFor(node, cluster, maxTry, false, false);
+            TestUtils.WaitFor(node, cluster, maxTry, false, false);
         }
 
         public static void WaitForDown(string node, Cluster cluster, int maxTry)
         {
-            WaitFor(node, cluster, maxTry, true, false);
+            TestUtils.WaitFor(node, cluster, maxTry, true, false);
         }
 
         public static void waitForDecommission(string node, Cluster cluster, int maxTry)
         {
-            WaitFor(node, cluster, maxTry, true, true);
+            TestUtils.WaitFor(node, cluster, maxTry, true, true);
         }
 
         public static void WaitForDownWithWait(String node, Cluster cluster, int waitTime)
         {
-            WaitFor(node, cluster, 90, true, false);
+            TestUtils.WaitFor(node, cluster, 90, true, false);
 
             // FIXME: Once stop() works, remove this line
             try
@@ -266,7 +280,7 @@ namespace Cassandra.IntegrationTests.TestBase
 
         private static void WaitFor(string node, Cluster cluster, int maxTry, bool waitForDead, bool waitForOut)
         {
-            WaitForMeta(node, cluster, maxTry, !waitForDead); 
+            TestUtils.WaitForMeta(node, cluster, maxTry, !waitForDead); 
         }
 
         /// <summary>
@@ -284,9 +298,7 @@ namespace Cassandra.IntegrationTests.TestBase
                 //Hide the python window if possible
                 process.StartInfo.UseShellExecute = false;
                 process.StartInfo.CreateNoWindow = true;
-#if !NETCORE
                 process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-#endif
 
                 using (var outputWaitHandle = new AutoResetEvent(false))
                 using (var errorWaitHandle = new AutoResetEvent(false))
@@ -352,19 +364,19 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static ProcessOutput ExecuteLocalCcm(string ccmArgs, string ccmConfigDir, int timeout = 300000, bool throwOnProcessError = false)
         {
-            ccmConfigDir = EscapePath(ccmConfigDir);
+            ccmConfigDir = TestUtils.EscapePath(ccmConfigDir);
             var args = ccmArgs + " --config-dir=" + ccmConfigDir;
             Trace.TraceInformation("Executing ccm: " + ccmArgs);
             var processName = "/usr/local/bin/ccm";
-            if (IsWin)
+            if (TestUtils.IsWin)
             {
                 processName = "cmd.exe";
                 args = "/c ccm " + args;
             }
-            var output = ExecuteProcess(processName, args, timeout);
+            var output = TestUtils.ExecuteProcess(processName, args, timeout);
             if (throwOnProcessError)
             {
-                ValidateOutput(output);
+                TestUtils.ValidateOutput(output);
             }
             return output;
         }
@@ -412,7 +424,7 @@ namespace Cassandra.IntegrationTests.TestBase
                 return output;
             }
 
-            var ccmCommand = String.Format("create {0} -v {1}", clusterName, cassandraVersion);
+            var ccmCommand = string.Format("create {0} -v {1}", clusterName, cassandraVersion);
             //When creating a cluster, it could download the Cassandra binaries from the internet.
             //Give enough time = 3 minutes.
             var timeout = 180000;
@@ -423,7 +435,7 @@ namespace Cassandra.IntegrationTests.TestBase
             }
             if (secondDcNodeLength > 0)
             {
-                ccmCommand = String.Format("populate -n {0}:{1}", nodeLength, secondDcNodeLength);
+                ccmCommand = string.Format("populate -n {0}:{1}", nodeLength, secondDcNodeLength);
             }
             else
             {
@@ -466,7 +478,7 @@ namespace Cassandra.IntegrationTests.TestBase
                         while (sw.ElapsedMilliseconds < 180000)
                         {
                             var logFileText =
-                                TryReadAllTextNoLock(Path.Combine(ccmConfigDir, clusterName, String.Format("node{0}\\logs\\system.log", x)));
+                                TestUtils.TryReadAllTextNoLock(Path.Combine(ccmConfigDir, clusterName, string.Format("node{0}\\logs\\system.log", x)));
                             if (Regex.IsMatch(logFileText, "listening for CQL clients", RegexOptions.Multiline))
                             {
                                 foundText = true;
@@ -475,7 +487,7 @@ namespace Cassandra.IntegrationTests.TestBase
                         }
                         if (!foundText)
                         {
-                            throw new TestInfrastructureException(String.Format("node{0} did not properly start", x));
+                            throw new TestInfrastructureException(string.Format("node{0} did not properly start", x));
                         }
                     }
                     allNodesAreUp = true;
@@ -531,11 +543,11 @@ namespace Cassandra.IntegrationTests.TestBase
         /// </summary>
         public static bool FileExists(string path)
         {
-            if (!_existsCache.ContainsKey(path))
+            if (!TestUtils._existsCache.ContainsKey(path))
             {
-                _existsCache[path] = File.Exists(path);
+                TestUtils._existsCache[path] = File.Exists(path);
             }
-            return _existsCache[path];
+            return TestUtils._existsCache[path];
         }
 
         /// <summary>
@@ -584,7 +596,7 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static void CcmDecommissionNode(CcmClusterInfo info, int node)
         {
-            ExecuteLocalCcm(string.Format("node{0} decommission", node), info.ConfigDir);
+            TestUtils.ExecuteLocalCcm(string.Format("node{0} decommission", node), info.ConfigDir);
         }
 
         /// <summary>
@@ -643,7 +655,22 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static void WaitForSchemaAgreement(CcmClusterInfo clusterInfo)
         {
-            WaitForSchemaAgreement(clusterInfo.Cluster);
+            TestUtils.WaitForSchemaAgreement(clusterInfo.Cluster);
+        }
+
+        public static void VerifyCurrentClusterWorkloads(string[] expectedWorkloads)
+        {
+            using (var cluster = TestUtils.NewBuilder()
+                .AddContactPoint(TestClusterManager.InitialContactPoint)
+                .Build())
+            {
+                cluster.Connect();
+                foreach (var host in cluster.Metadata.AllHosts())
+                {
+
+                    CollectionAssert.AreEquivalent(expectedWorkloads, host.Workloads);
+                }
+            }
         }
     }
 
@@ -656,6 +683,8 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public StringBuilder OutputText { get; set; }
 
+        private string Output { get; set; }
+
         public ProcessOutput()
         {
             OutputText = new StringBuilder();
@@ -666,7 +695,12 @@ namespace Cassandra.IntegrationTests.TestBase
         {
             return
                 "Exit Code: " + this.ExitCode + Environment.NewLine +
-                "Output Text: " + this.OutputText.ToString() + Environment.NewLine;
+                "Output Text: " + (this.Output ?? this.OutputText.ToString()) + Environment.NewLine;
+        }
+
+        public void SetOutput(string output)
+        {
+            Output = output;
         }
     }
 

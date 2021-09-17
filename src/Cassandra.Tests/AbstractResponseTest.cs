@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -36,7 +36,8 @@ namespace Cassandra.Tests
         public void Ctor_NoFlags_TraceIdIsNull()
         {
             // Arrange
-            var frame = new Frame(new FrameHeader(), new MemoryStream(), new Serializer(ProtocolVersion.V4));
+            var frame = new Frame(
+                new FrameHeader(), new MemoryStream(), new SerializerManager(ProtocolVersion.V4).GetCurrentSerializer(), null);
 
             // Act
             var uut = new Response(frame);
@@ -49,7 +50,11 @@ namespace Cassandra.Tests
         public void Ctor_NoFlags_BodyStreamPositionIsZero()
         {
             // Arrange
-            var frame = new Frame(new FrameHeader(), new MemoryStream(new byte[] { 1 }), new Serializer(ProtocolVersion.V4));
+            var frame = new Frame(
+                new FrameHeader(), 
+                new MemoryStream(new byte[] { 1 }), 
+                new SerializerManager(ProtocolVersion.V4).GetCurrentSerializer(),
+                null);
 
             // Act
             new Response(frame);
@@ -62,13 +67,13 @@ namespace Cassandra.Tests
         public void Ctor_TraceFlagSet_TraceIdIsSet()
         {
             // Arrange
-            var header = new FrameHeader {Flags = FrameHeader.HeaderFlag.Tracing};
+            var header = new FrameHeader {Flags = HeaderFlags.Tracing};
             var rnd = new Random();
             var buffer = new byte[16];
             rnd.NextBytes(buffer);
             var expected = new Guid(TypeSerializer.GuidShuffle(buffer));
             var body = new MemoryStream(buffer);
-            var frame = new Frame(header, body, new Serializer(ProtocolVersion.V4));
+            var frame = new Frame(header, body, new SerializerManager(ProtocolVersion.V4).GetCurrentSerializer(), null);
 
             // Act
             var uut = new Response(frame);
@@ -81,9 +86,9 @@ namespace Cassandra.Tests
         public void Ctor_TraceFlagSet_BytesReadFromFrame()
         {
             // Arrange
-            var header = new FrameHeader { Flags = FrameHeader.HeaderFlag.Tracing };
+            var header = new FrameHeader { Flags = HeaderFlags.Tracing };
             var body = new MemoryStream(new byte[20]);
-            var frame = new Frame(header, body, new Serializer(ProtocolVersion.V4));
+            var frame = new Frame(header, body, new SerializerManager(ProtocolVersion.V4).GetCurrentSerializer(), null);
 
             // Act
             new Response(frame);

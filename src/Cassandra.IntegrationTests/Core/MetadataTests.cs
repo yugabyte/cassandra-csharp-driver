@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 //   limitations under the License.
 //
 
-using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using Cassandra.Tests;
 using NUnit.Framework;
@@ -24,11 +23,12 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using Cassandra.IntegrationTests.TestBase;
 using SortOrder = Cassandra.DataCollectionMetadata.SortOrder;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class MetadataTests : TestGlobals
     {
         private const int DefaultNodeCount = 1;
@@ -56,10 +56,10 @@ namespace Cassandra.IntegrationTests.Core
             Assert.AreEqual(1, cluster.GetReplicas("ks2", new byte[] {0, 0, 0, 1}).Count);
 
             const string createKeyspaceQuery = "CREATE KEYSPACE {0} WITH replication = {{ 'class' : '{1}', {2} }}";
-            session.Execute(String.Format(createKeyspaceQuery, "ks1", "SimpleStrategy", "'replication_factor' : 1"));
-            session.Execute(String.Format(createKeyspaceQuery, "ks2", "SimpleStrategy", "'replication_factor' : 3"));
-            session.Execute(String.Format(createKeyspaceQuery, "ks3", "NetworkTopologyStrategy", "'dc1' : 1"));
-            session.Execute(String.Format(createKeyspaceQuery, "\"KS4\"", "SimpleStrategy", "'replication_factor' : 3"));
+            session.Execute(string.Format(createKeyspaceQuery, "ks1", "SimpleStrategy", "'replication_factor' : 1"));
+            session.Execute(string.Format(createKeyspaceQuery, "ks2", "SimpleStrategy", "'replication_factor' : 3"));
+            session.Execute(string.Format(createKeyspaceQuery, "ks3", "NetworkTopologyStrategy", "'dc1' : 1"));
+            session.Execute(string.Format(createKeyspaceQuery, "\"KS4\"", "SimpleStrategy", "'replication_factor' : 3"));
             //Let the magic happen
             Thread.Sleep(5000);
             Assert.Greater(cluster.Metadata.GetKeyspaces().Count, initialLength);
@@ -84,17 +84,17 @@ namespace Cassandra.IntegrationTests.Core
             ITestCluster testCluster = TestClusterManager.GetNonShareableTestCluster(2);
             var cluster = testCluster.Cluster;
             //The control connection is connected to host 1
-            Assert.AreEqual(1, TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.Address));
+            Assert.AreEqual(1, TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.EndPoint.GetHostIpEndPointWithFallback()));
             testCluster.StopForce(1);
             Thread.Sleep(10000);
 
             //The control connection is still connected to host 1
-            Assert.AreEqual(1, TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.Address));
+            Assert.AreEqual(1, TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.EndPoint.GetHostIpEndPointWithFallback()));
             var t = cluster.Metadata.GetTable("system", "local");
             Assert.NotNull(t);
 
             //The control connection should be connected to host 2
-            Assert.AreEqual(2, TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.Address));
+            Assert.AreEqual(2, TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.EndPoint.GetHostIpEndPointWithFallback()));
         }
 
         [Test]
@@ -127,7 +127,7 @@ namespace Cassandra.IntegrationTests.Core
                 }
                 Thread.Sleep(1000);
             }
-            Assert.True(cluster.AllHosts().Any(h => TestHelper  .GetLastAddressByte(h) == 2 && !h.IsUp));
+            Assert.True(cluster.AllHosts().Any(h => TestHelper.GetLastAddressByte(h) == 2 && !h.IsUp));
             Assert.AreNotEqual(counter, maxWait, "Waited but it was never notified via events");
             Assert.True(downEventFired);
         }
@@ -157,7 +157,7 @@ namespace Cassandra.IntegrationTests.Core
                 }
             };
             //The host not used by the control connection
-            int hostToKill = TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.Address);
+            int hostToKill = TestHelper.GetLastAddressByte(cluster.Metadata.ControlConnection.EndPoint.GetHostIpEndPointWithFallback());
             if (!useControlConnectionHost)
             {
                 hostToKill = hostToKill == 1 ? 2 : 1;
@@ -368,9 +368,10 @@ namespace Cassandra.IntegrationTests.Core
         [Test]
         public void TableMetadataNestedCollectionsTest()
         {
-            if (CassandraVersion < Version.Parse("2.1.3"))
+            if (TestClusterManager.CheckCassandraVersion(false, Version.Parse("2.1.3"), Comparison.LessThan))
             {
                 Assert.Ignore("Nested frozen collections are supported in 2.1.3 and above");
+                return;
             }
             var keyspaceName = TestUtils.GetUniqueKeyspaceName();
             const string tableName = "tbl_nested_cols_meta";
@@ -381,7 +382,7 @@ namespace Cassandra.IntegrationTests.Core
             session.CreateKeyspaceIfNotExists(keyspaceName);
             session.ChangeKeyspace(keyspaceName);
 
-            session.Execute(String.Format("CREATE TABLE {0} (" +
+            session.Execute(string.Format("CREATE TABLE {0} (" +
                                           "id uuid primary key, " +
                                           "map1 map<varchar, frozen<list<timeuuid>>>," +
                                           "map2 map<int, frozen<map<uuid, bigint>>>," +
@@ -427,7 +428,7 @@ namespace Cassandra.IntegrationTests.Core
         [Test]
         public void TableMetadataCassandra22Types()
         {
-            if (CassandraVersion < Version.Parse("2.2"))
+            if (TestClusterManager.CheckCassandraVersion(false, new Version(2, 2), Comparison.LessThan))
             {
                 Assert.Ignore("Date, Time, SmallInt and TinyInt are supported in 2.2 and above");
             }
@@ -440,7 +441,7 @@ namespace Cassandra.IntegrationTests.Core
             session.CreateKeyspaceIfNotExists(keyspaceName);
             session.ChangeKeyspace(keyspaceName);
 
-            session.Execute(String.Format("CREATE TABLE {0} (" +
+            session.Execute(string.Format("CREATE TABLE {0} (" +
                                           "id uuid primary key, " +
                                           "map1 map<smallint, date>," +
                                           "s smallint," +
@@ -470,7 +471,7 @@ namespace Cassandra.IntegrationTests.Core
         public void TableMetadata_With_Compact_Storage()
         {
             var testCluster = TestClusterManager.GetNonShareableTestCluster(1, 1, true, false);
-            using (var cluster = Cluster.Builder().AddContactPoint(testCluster.InitialContactPoint).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(testCluster.InitialContactPoint).Build())
             {
                 var session = cluster.Connect();
                 session.CreateKeyspaceIfNotExists("ks_meta_compac");
@@ -523,7 +524,7 @@ namespace Cassandra.IntegrationTests.Core
                 "SELECT * FROM ks2.tbl4",
                 "SELECT * FROM ks2.tbl4"
             };
-            using (var cluster = Cluster.Builder().AddContactPoint(testCluster.InitialContactPoint).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(testCluster.InitialContactPoint).Build())
             {
                 var session = cluster.Connect();
                 //warm up the pool
@@ -541,7 +542,7 @@ namespace Cassandra.IntegrationTests.Core
         public void Should_Retrieve_Host_Cassandra_Version()
         {
             var testCluster = TestClusterManager.GetNonShareableTestCluster(2, DefaultMaxClusterCreateRetries, true, false);
-            using (var cluster = Cluster.Builder().AddContactPoint(testCluster.InitialContactPoint).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(testCluster.InitialContactPoint).Build())
             {
                 CollectionAssert.DoesNotContain(cluster.Metadata.Hosts.Select(h => h.CassandraVersion), null);
             }
@@ -568,7 +569,7 @@ namespace Cassandra.IntegrationTests.Core
                 "CREATE MATERIALIZED VIEW ks_view_meta.dailyhigh AS SELECT user FROM scores WHERE game IS NOT NULL AND year IS NOT NULL AND month IS NOT NULL AND day IS NOT NULL AND score IS NOT NULL AND user IS NOT NULL PRIMARY KEY ((game, year, month, day), score, user) WITH CLUSTERING ORDER BY (score DESC)"
             };
             var testCluster = TestClusterManager.GetNonShareableTestCluster(1, DefaultMaxClusterCreateRetries, true, false);
-            using (var cluster = Cluster.Builder().AddContactPoint(testCluster.InitialContactPoint).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(testCluster.InitialContactPoint).Build())
             {
                 var session = cluster.Connect();
                 foreach (var q in queries)
@@ -626,7 +627,7 @@ namespace Cassandra.IntegrationTests.Core
                 @"CREATE MATERIALIZED VIEW ks_view_meta2.mv1 AS SELECT ""theKey"", ""the;Clustering"", ""the Value"" FROM t1 WHERE ""theKey"" IS NOT NULL AND ""the;Clustering"" IS NOT NULL AND ""the Value"" IS NOT NULL PRIMARY KEY (""theKey"", ""the;Clustering"")"
             };
             var testCluster = TestClusterManager.GetNonShareableTestCluster(1, DefaultMaxClusterCreateRetries, true, false);
-            using (var cluster = Cluster.Builder().AddContactPoint(testCluster.InitialContactPoint).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(testCluster.InitialContactPoint).Build())
             {
                 var session = cluster.Connect();
                 foreach (var q in queries)

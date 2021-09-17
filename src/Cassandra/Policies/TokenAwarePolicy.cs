@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2017 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -48,8 +48,6 @@ namespace Cassandra
     /// </summary>
     public class TokenAwarePolicy : ILoadBalancingPolicy
     {
-
-        private readonly ILoadBalancingPolicy _childPolicy;
         private ICluster _cluster;
         private readonly ThreadLocal<Random> _prng = new ThreadLocal<Random>(() => new Random(
             // Predictable random numbers are OK
@@ -63,13 +61,15 @@ namespace Cassandra
         ///  awareness.</param>
         public TokenAwarePolicy(ILoadBalancingPolicy childPolicy)
         {
-            _childPolicy = childPolicy;
+            ChildPolicy = childPolicy;
         }
+
+        public ILoadBalancingPolicy ChildPolicy { get; }
 
         public void Initialize(ICluster cluster)
         {
             _cluster = cluster;
-            _childPolicy.Initialize(cluster);
+            ChildPolicy.Initialize(cluster);
         }
 
         /// <summary>
@@ -81,7 +81,7 @@ namespace Cassandra
         ///  policy.</returns>
         public HostDistance Distance(Host host)
         {
-            return _childPolicy.Distance(host);
+            return ChildPolicy.Distance(host);
         }
 
         /// <summary>
@@ -96,32 +96,25 @@ namespace Cassandra
         /// <returns>the new query plan.</returns>
         public IEnumerable<Host> NewQueryPlan(string loggedKeyspace, IStatement query)
         {
-            var routingKey = query == null ? null : query.RoutingKey;
+            var routingKey = query?.RoutingKey;
             IEnumerable<Host> childIterator;
             if (routingKey == null)
             {
-                childIterator = _childPolicy.NewQueryPlan(loggedKeyspace, query);
+                childIterator = ChildPolicy.NewQueryPlan(loggedKeyspace, query);
                 foreach (var h in childIterator)
                 {
                     yield return h;
                 }
                 yield break;
             }
-            var keyspace = loggedKeyspace;
-            // Story: Keyspace property has been added at Statement abstract class level and not at interface level
-            // to avoid introducing a breaking change
-            var statement = query as Statement;
-            if (statement != null && statement.Keyspace != null)
-            {
-                keyspace = statement.Keyspace;
-            }
 
+            var keyspace = query.Keyspace ?? loggedKeyspace;
             var replicas = _cluster.GetReplicas(keyspace, routingKey.RawRoutingKey);
 
             var localReplicaSet = new HashSet<Host>();
             var localReplicaList = new List<Host>(replicas.Count);
             // We can't do it lazily as we need to balance the load between local replicas
-            foreach (var localReplica in replicas.Where(h => _childPolicy.Distance(h) == HostDistance.Local))
+            foreach (var localReplica in replicas.Where(h => ChildPolicy.Distance(h) == HostDistance.Local))
             {
                 localReplicaSet.Add(localReplica);
                 localReplicaList.Add(localReplica);
@@ -138,7 +131,7 @@ namespace Cassandra
             }
 
             // Then, return the rest of child policy hosts
-            childIterator = _childPolicy.NewQueryPlan(loggedKeyspace, query);
+            childIterator = ChildPolicy.NewQueryPlan(loggedKeyspace, query);
             foreach (var h in childIterator)
             {
                 if (localReplicaSet.Contains(h))
@@ -153,7 +146,7 @@ namespace Cassandra
         {
             get
             {
-                return _childPolicy.RequiresPartitionMap;
+                return ChildPolicy.RequiresPartitionMap;
             }
         }
 

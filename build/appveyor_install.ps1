@@ -62,16 +62,16 @@ If (!(Test-Path $jce_indicator)) {
 
 # Install Python Dependencies for CCM.
 Write-Host "Installing CCM and its dependencies"
-Start-Process python -ArgumentList "-m pip install psutil pyYaml six" -Wait -NoNewWindow
+python -m pip install psutil pyYaml six
 
 $env:CCM_PATH="C:$($env:HOMEPATH)\ccm"
 
 If (!(Test-Path $env:CCM_PATH)) {
   Write-Host "Cloning git ccm... $($env:CCM_PATH)"
-  Start-Process git -ArgumentList "clone https://github.com/pcmanus/ccm.git $($env:CCM_PATH)" -Wait -NoNewWindow
+  git clone https://github.com/pcmanus/ccm.git $env:CCM_PATH
   Write-Host "git ccm cloned"
   pushd $env:CCM_PATH
-  Start-Process python -ArgumentList "setup.py install" -Wait -NoNewWindow
+  python setup.py install
   popd
 }
 
@@ -130,12 +130,10 @@ If (!(Test-Path C:\Users\appveyor\.ccm\repository\$env:cassandra_version)) {
   Write-Host "Cassandra $env:cassandra_version was already preloaded"
 }
 
-choco install -y xmlstarlet
-
 #Download simulacron jar
-$simulacron_path = "$($dep_dir)\simulacron.jar"
+$simulacron_version = "0.10.0"
+$simulacron_path = "$($dep_dir)\simulacron-$($simulacron_version).jar"
 If (!(Test-Path $simulacron_path)) {
-  $simulacron_version = "0.8.2"
   Write-Host "Downloading simulacron jar version $simulacron_version"
   $url = "https://github.com/datastax/simulacron/releases/download/$($simulacron_version)/simulacron-standalone-$($simulacron_version).jar"
   (new-object System.Net.WebClient).DownloadFile($url, $simulacron_path)

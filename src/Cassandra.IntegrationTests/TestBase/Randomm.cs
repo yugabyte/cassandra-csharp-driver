@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static Randomm Instance
         {
-            get { return _rnd ?? (_rnd = new Randomm(5)); }
+            get { return Randomm._rnd ?? (Randomm._rnd = new Randomm(5)); }
         }
 
         private Randomm(int seed) : base(seed)
@@ -36,7 +36,7 @@ namespace Cassandra.IntegrationTests.TestBase
         internal static object RandomVal(Type tp)
         {
             if (tp != null)
-                return Instance.GetType().GetTypeInfo().GetMethod("Next" + tp.Name).Invoke(Instance, new object[] {});
+                return Randomm.Instance.GetType().GetTypeInfo().GetMethod("Next" + tp.Name).Invoke(Randomm.Instance, new object[] {});
             return "";
         }
 
@@ -55,7 +55,7 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static int NextInt32()
         {
-            return Instance.Next();
+            return Randomm.Instance.Next();
         }
 
         public Int64 NextInt64()
@@ -70,9 +70,9 @@ namespace Cassandra.IntegrationTests.TestBase
             var scale = (byte) Next(29);
             bool sign = Next(2) == 1;
 
-            return new decimal(NextInt32(),
-                               NextInt32(),
-                               NextInt32(),
+            return new decimal(Randomm.NextInt32(),
+                               Randomm.NextInt32(),
+                               Randomm.NextInt32(),
                                sign,
                                scale);
         }
@@ -130,7 +130,7 @@ namespace Cassandra.IntegrationTests.TestBase
 
         public static int RandomInt()
         {
-            return NextInt32();
+            return Randomm.NextInt32();
         }
 
         public static string RandomAlphaNum(int strLen)

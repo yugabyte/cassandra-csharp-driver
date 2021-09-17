@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -51,8 +51,7 @@ namespace Cassandra.Data
         {
             get { return _syncLock; }
         }
-
-#if !NETCORE
+        
         /// <summary>
         /// Specifies whether the collection is a fixed size.
         /// </summary>
@@ -79,7 +78,6 @@ namespace Cassandra.Data
         {
             get { return false; }
         }
-#endif
 
         /// <summary>
         /// Adds the specified <see cref="T:System.Data.Common.DbParameter" /> object

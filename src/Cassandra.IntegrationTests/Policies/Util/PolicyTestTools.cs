@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ using System.Text;
 using System.Threading;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Policies.Util
@@ -49,29 +50,48 @@ namespace Cassandra.IntegrationTests.Policies.Util
             CreateSchema(session, 1);
         }
 
-        public void CreateSchema(ISession session, int replicationFactor)
+        public void CreateSchema(ISession session, int replicationFactor, string keyspace = null, bool forceSchemaAgreement = false)
         {
             try
             {
-                session.Execute(String.Format(TestUtils.CreateKeyspaceSimpleFormat, DefaultKeyspace, replicationFactor));
+                session.Execute(string.Format(TestUtils.CreateKeyspaceSimpleFormat, keyspace ?? DefaultKeyspace, replicationFactor));
             }
             catch (AlreadyExistsException)
             {
             }
-            TestUtils.WaitForSchemaAgreement(session.Cluster);
-            session.ChangeKeyspace(DefaultKeyspace);
-            session.Execute(String.Format("CREATE TABLE {0} (k int PRIMARY KEY, i int)", TableName));
-            TestUtils.WaitForSchemaAgreement(session.Cluster);
+
+            if (forceSchemaAgreement)
+            {
+                TestHelper.RetryAssert(
+                    () => Assert.IsTrue(session.Cluster.Metadata.CheckSchemaAgreementAsync().Result),
+                    1000, 60);
+            }
+            else
+            {
+                TestUtils.WaitForSchemaAgreement(session.Cluster);
+            }
+            session.ChangeKeyspace(keyspace ?? DefaultKeyspace);
+            session.Execute($"CREATE TABLE {TableName} (k int PRIMARY KEY, i int)");
+            if (forceSchemaAgreement)
+            {
+                TestHelper.RetryAssert(
+                    () => Assert.IsTrue(session.Cluster.Metadata.CheckSchemaAgreementAsync().Result),
+                    1000, 60);
+            }
+            else
+            {
+                TestUtils.WaitForSchemaAgreement(session.Cluster);
+            }
         }
 
         public void CreateMultiDcSchema(ISession session, int dc1RF = 1, int dc2RF = 1)
         {
-            session.Execute(String.Format(TestUtils.CreateKeyspaceGenericFormat, DefaultKeyspace, "NetworkTopologyStrategy",
+            session.Execute(string.Format(TestUtils.CreateKeyspaceGenericFormat, DefaultKeyspace, "NetworkTopologyStrategy",
                                               string.Format("'dc1' : {0}, 'dc2' : {1}", dc1RF, dc2RF)));
             TestUtils.WaitForSchemaAgreement(session.Cluster);
             session.ChangeKeyspace(DefaultKeyspace);
             TestUtils.WaitForSchemaAgreement(session.Cluster);
-            session.Execute(String.Format("CREATE TABLE {0} (k int PRIMARY KEY, i int)", TableName));
+            session.Execute(string.Format("CREATE TABLE {0} (k int PRIMARY KEY, i int)", TableName));
             TestUtils.WaitForSchemaAgreement(session.Cluster);
         }
 
@@ -111,7 +131,7 @@ namespace Cassandra.IntegrationTests.Policies.Util
             {
                 queriedInSet += Coordinators.ContainsKey(host) ? (int) Coordinators[host] : 0;
             }
-            Assert.AreEqual(queriedInSet, n, String.Format("For [{0}]", String.Join(", ", hosts)));
+            Assert.AreEqual(queriedInSet, n, string.Format("For [{0}]", String.Join(", ", hosts)));
         }
 
         public void AssertQueriedAtLeast(string host, int n)
@@ -160,7 +180,7 @@ namespace Cassandra.IntegrationTests.Policies.Util
                 {
                     var bth = new StringBuilder();
                     bth.AppendLine("BEGIN BATCH");
-                    bth.AppendLine(String.Format("INSERT INTO {0}(k, i) VALUES (0, 0)", TableName));
+                    bth.AppendLine(string.Format("INSERT INTO {0}(k, i) VALUES (0, 0)", TableName));
                     bth.AppendLine("APPLY BATCH");
 
                     testCluster.Session.Execute(new SimpleStatement(bth.ToString()).SetConsistencyLevel(consistencyLevel));
@@ -168,7 +188,7 @@ namespace Cassandra.IntegrationTests.Policies.Util
                 else
                 {
                     testCluster.Session.Execute(
-                            new SimpleStatement(String.Format("INSERT INTO {0}(k, i) VALUES (0, 0)", TableName)).SetConsistencyLevel(consistencyLevel));
+                            new SimpleStatement(string.Format("INSERT INTO {0}(k, i) VALUES (0, 0)", TableName)).SetConsistencyLevel(consistencyLevel));
                 }
 
             PreparedStatement = testCluster.Session.Prepare("SELECT * FROM " + TableName + " WHERE k = ?").SetConsistencyLevel(consistencyLevel);
@@ -219,7 +239,7 @@ namespace Cassandra.IntegrationTests.Policies.Util
                     string hostQueried;
                     ConsistencyLevel achievedConsistency;
                     var rs = testCluster.Session.Execute(
-                                new SimpleStatement(String.Format("SELECT * FROM {0} WHERE k = 0", TableName)).SetRoutingKey(routingKey)
+                                new SimpleStatement(string.Format("SELECT * FROM {0} WHERE k = 0", TableName)).SetRoutingKey(routingKey)
                                                                                                           .SetConsistencyLevel(consistencyLevel));
                     {
                         hostQueried = rs.Info.QueriedHost.ToString();

@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -78,7 +78,6 @@ namespace Cassandra.Data
             enumerRows = enumRows.GetEnumerator();
         }
 
-#if !NETCORE
         public override void Close()
         {
 
@@ -88,7 +87,6 @@ namespace Cassandra.Data
         {
             throw new NotSupportedException();
         }
-#endif
 
         /// <inheritdoc />
         public override bool GetBoolean(int ordinal)

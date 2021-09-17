@@ -1,3 +1,19 @@
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
 using System;
 using System.Collections.Generic;
 using Cassandra.Mapping.Statements;
@@ -30,10 +46,8 @@ namespace Cassandra.Mapping
 
         public CqlBatch(MapperFactory mapperFactory, CqlGenerator cqlGenerator, BatchType type)
         {
-            if (mapperFactory == null) throw new ArgumentNullException("mapperFactory");
-            if (cqlGenerator == null) throw new ArgumentNullException("cqlGenerator");
-            _mapperFactory = mapperFactory;
-            _cqlGenerator = cqlGenerator;
+            _mapperFactory = mapperFactory ?? throw new ArgumentNullException(nameof(mapperFactory));
+            _cqlGenerator = cqlGenerator ?? throw new ArgumentNullException(nameof(cqlGenerator));
             _statements = new List<Cql>();
             BatchType = type;
             Options = new CqlQueryOptions();
@@ -43,7 +57,7 @@ namespace Cassandra.Mapping
         {
             Insert(poco, true, queryOptions);
         }
-
+        
         public void Insert<T>(T poco, bool insertNulls, CqlQueryOptions queryOptions = null)
         {
             Insert(false, insertNulls, poco, queryOptions, null);
@@ -63,24 +77,23 @@ namespace Cassandra.Mapping
         {
             Insert(true, insertNulls, poco, queryOptions);
         }
-
+        
         public void InsertIfNotExists<T>(T poco, bool insertNulls, int? ttl, CqlQueryOptions queryOptions = null)
         {
             Insert(true, insertNulls, poco, queryOptions, ttl);
         }
-
+        
         private void Insert<T>(bool ifNotExists, bool insertNulls, T poco, CqlQueryOptions queryOptions = null, int? ttl = null)
         {
             var pocoData = _mapperFactory.PocoDataFactory.GetPocoData<T>();
-            var queryIdentifier = string.Format("INSERT ID {0}/{1}", pocoData.KeyspaceName, pocoData.TableName);
+            var queryIdentifier = $"INSERT ID {pocoData.KeyspaceName}/{pocoData.TableName}";
             var getBindValues = _mapperFactory.GetValueCollector<T>(queryIdentifier);
             //get values first to identify null values
             var values = getBindValues(poco);
             //generate INSERT query based on null values (if insertNulls set)
-            object[] queryParameters;
-            var cql = _cqlGenerator.GenerateInsert<T>(insertNulls, values, out queryParameters, ifNotExists, ttl);
-
-            _statements.Add(Cql.New(cql, queryParameters, queryOptions ?? CqlQueryOptions.None));
+            var cql = _cqlGenerator.GenerateInsert<T>(insertNulls, values, out var queryParameters, ifNotExists, ttl);
+            var cqlInstance = Cql.New(cql, queryParameters, queryOptions ?? CqlQueryOptions.None);
+            _statements.Add(cqlInstance);
         }
 
         public void Update<T>(T poco, CqlQueryOptions queryOptions = null)

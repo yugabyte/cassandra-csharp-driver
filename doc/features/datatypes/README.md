@@ -13,6 +13,7 @@ custom|byte[]
 date|[LocalDate](datetime)
 decimal|decimal
 double|double
+duration|Duration
 float|float
 inet|IPAddress
 int|int
@@ -28,5 +29,3 @@ tinyint|sbyte
 uuid|Guid
 varchar|string
 varint|BigInteger
-
-

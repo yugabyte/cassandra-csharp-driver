@@ -1,3 +1,19 @@
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,7 +25,7 @@ namespace Cassandra.Mapping
     /// <summary>
     /// Represents data about a POCO and its mapping to Cassandra Rows in a table.
     /// </summary>
-    internal class PocoData
+    internal class PocoData : IPocoData
     {
         private readonly Dictionary<string, PocoColumn> _columnsByMemberName;
         private readonly HashSet<string> _primaryKeys;
@@ -64,14 +80,11 @@ namespace Cassandra.Mapping
         public PocoData(Type pocoType, string tableName, string keyspaceName, LookupKeyedCollection<string, PocoColumn> columns,
                         string[] partitionkeys, Tuple<string, SortOrder>[] clusteringKeys, bool caseSensitive, bool compact, bool allowFiltering)
         {
-            if (pocoType == null) throw new ArgumentNullException("pocoType");
-            if (tableName == null) throw new ArgumentNullException("tableName");
-            if (columns == null) throw new ArgumentNullException("columns");
             if (partitionkeys == null) throw new ArgumentNullException("partitionkeys");
             if (clusteringKeys == null) throw new ArgumentNullException("clusteringKeys");
-            PocoType = pocoType;
-            TableName = tableName;
-            Columns = columns;
+            PocoType = pocoType ?? throw new ArgumentNullException("pocoType");
+            TableName = tableName ?? throw new ArgumentNullException("tableName");
+            Columns = columns ?? throw new ArgumentNullException("columns");
             CaseSensitive = caseSensitive;
             CompactStorage = compact;
             AllowFiltering = allowFiltering;
@@ -117,8 +130,7 @@ namespace Cassandra.Mapping
         /// </summary>
         public PocoColumn GetColumnByMemberName(string memberName)
         {
-            PocoColumn column;
-            _columnsByMemberName.TryGetValue(memberName, out column);
+            _columnsByMemberName.TryGetValue(memberName, out PocoColumn column);
             return column;
         }
 
@@ -128,7 +140,7 @@ namespace Cassandra.Mapping
         public string GetColumnNameByMemberName(string memberName)
         {
             var column = GetColumnByMemberName(memberName);
-            return column != null ? column.ColumnName : null;
+            return column?.ColumnName;
         }
 
         /// <summary>
@@ -137,7 +149,7 @@ namespace Cassandra.Mapping
         public string GetColumnName(MemberInfo member)
         {
             var column = GetColumnByMemberName(member.Name);
-            return column != null ? column.ColumnName : null;
+            return column?.ColumnName;
         }
     }
 }

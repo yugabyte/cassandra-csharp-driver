@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,9 +14,6 @@
 //   limitations under the License.
 //
 
-﻿using System;
-﻿using System.Collections.Generic;
-
 namespace Cassandra.Requests
 {
     /// <summary>
@@ -29,10 +26,5 @@ namespace Cassandra.Requests
         /// It defaults to the one provided by the Statement but it can be changed by the retry policy.
         /// </summary>
         ConsistencyLevel Consistency { get; set; }
-
-        /// <summary>
-        /// Gets or sets the custom payload to be set with this request
-        /// </summary>
-        IDictionary<string, byte[]> Payload { get; set; }
     }
 }

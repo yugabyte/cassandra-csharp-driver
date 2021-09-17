@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,12 +16,15 @@
 
 using NUnit.Framework;
 using System.Linq;
+using Cassandra.IntegrationTests.SimulacronAPI.Models.Logs;
+using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement.Simulacron;
+using Cassandra.Tests;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("short")]
-    public class ConsistencyTests
+    [TestFixture, Category(TestCategory.Short)]
+    public class ConsistencyTests : TestGlobals
     {
         private const string Query = "SELECT id, value from verifyconsistency";
 
@@ -39,30 +42,29 @@ namespace Cassandra.IntegrationTests.Core
         public void Should_UseCLLocalOne_When_NotSpecifiedXDefaultX()
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
                 var session = cluster.Connect();
                 var rs = session.Execute(new SimpleStatement(Query));
                 Assert.AreEqual(ConsistencyLevel.LocalOne, rs.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, Query, "LOCAL_ONE");
+                VerifyConsistency(simulacronCluster, Query, ConsistencyLevel.LocalOne);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM")]
-        [TestCase(ConsistencyLevel.All, "ALL")]
-        [TestCase(ConsistencyLevel.Any, "ANY")]
-        [TestCase(ConsistencyLevel.One, "ONE")]
-        [TestCase(ConsistencyLevel.Two, "TWO")]
-        [TestCase(ConsistencyLevel.Three, "THREE")]
-        [TestCase(ConsistencyLevel.LocalOne, "LOCAL_ONE")]
-        [TestCase(ConsistencyLevel.LocalQuorum, "LOCAL_QUORUM")]
-        public void Should_UseQueryOptionsCL_When_NotSetAtSimpleStatement(ConsistencyLevel consistencyLevel, 
-                                                                                string consistencyLevelString)
+        [TestCase(ConsistencyLevel.Quorum)]
+        [TestCase(ConsistencyLevel.All)]
+        [TestCase(ConsistencyLevel.Any)]
+        [TestCase(ConsistencyLevel.One)]
+        [TestCase(ConsistencyLevel.Two)]
+        [TestCase(ConsistencyLevel.Three)]
+        [TestCase(ConsistencyLevel.LocalOne)]
+        [TestCase(ConsistencyLevel.LocalQuorum)]
+        public void Should_UseQueryOptionsCL_When_NotSetAtSimpleStatement(ConsistencyLevel consistencyLevel)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .WithQueryOptions(new QueryOptions().SetConsistencyLevel(consistencyLevel))
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
@@ -70,17 +72,17 @@ namespace Cassandra.IntegrationTests.Core
                 var simpleStatement = new SimpleStatement(Query);
                 var result = session.Execute(simpleStatement);
                 Assert.AreEqual(consistencyLevel, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, Query, consistencyLevelString);
+                VerifyConsistency(simulacronCluster, Query, consistencyLevel);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Serial, "SERIAL")]
-        [TestCase(ConsistencyLevel.LocalSerial, "LOCAL_SERIAL")]
-        public void Should_UseQueryOptionsSerialCL_When_NotSetAtSimpleStatement(ConsistencyLevel serialConsistency, string serialConsistencyLevelString)
+        [TestCase(ConsistencyLevel.Serial)]
+        [TestCase(ConsistencyLevel.LocalSerial)]
+        public void Should_UseQueryOptionsSerialCL_When_NotSetAtSimpleStatement(ConsistencyLevel serialConsistency)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .WithQueryOptions(new QueryOptions().SetSerialConsistencyLevel(serialConsistency))
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
@@ -89,23 +91,23 @@ namespace Cassandra.IntegrationTests.Core
                 var simpleStatement = new SimpleStatement(conditionalQuery);
                 var result = session.Execute(simpleStatement);
                 Assert.AreEqual(ConsistencyLevel.LocalOne, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, conditionalQuery, "LOCAL_ONE", serialConsistencyLevelString);
+                VerifyConsistency(simulacronCluster, conditionalQuery, ConsistencyLevel.LocalOne, serialConsistency);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM")]
-        [TestCase(ConsistencyLevel.All, "ALL")]
-        [TestCase(ConsistencyLevel.Any, "ANY")]
-        [TestCase(ConsistencyLevel.One, "ONE")]
-        [TestCase(ConsistencyLevel.Two, "TWO")]
-        [TestCase(ConsistencyLevel.Three, "THREE")]
-        [TestCase(ConsistencyLevel.LocalOne, "LOCAL_ONE")]
-        [TestCase(ConsistencyLevel.LocalQuorum, "LOCAL_QUORUM")]
-        public void Should_UseSimpleStatementCL_When_Set(ConsistencyLevel consistencyLevel, string consistencyLevelString)
+        [TestCase(ConsistencyLevel.Quorum)]
+        [TestCase(ConsistencyLevel.All)]
+        [TestCase(ConsistencyLevel.Any)]
+        [TestCase(ConsistencyLevel.One)]
+        [TestCase(ConsistencyLevel.Two)]
+        [TestCase(ConsistencyLevel.Three)]
+        [TestCase(ConsistencyLevel.LocalOne)]
+        [TestCase(ConsistencyLevel.LocalQuorum)]
+        public void Should_UseSimpleStatementCL_When_Set(ConsistencyLevel consistencyLevel)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .WithQueryOptions(new QueryOptions().SetConsistencyLevel(ConsistencyLevel.Any))
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
@@ -113,18 +115,18 @@ namespace Cassandra.IntegrationTests.Core
                 var simpleStatement = new SimpleStatement(Query).SetConsistencyLevel(consistencyLevel);
                 var result = session.Execute(simpleStatement);
                 Assert.AreEqual(consistencyLevel, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, Query, consistencyLevelString);
+                VerifyConsistency(simulacronCluster, Query, consistencyLevel);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM", ConsistencyLevel.Serial, "SERIAL")]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM", ConsistencyLevel.LocalSerial, "LOCAL_SERIAL")]
-        public void Should_UseSerialConsistencyLevelSpecified_When_ConditionalQuery(ConsistencyLevel consistencyLevel, 
-                     string consistencyLevelString, ConsistencyLevel serialConsistency, string serialConsistencyLevelString)
+        [TestCase(ConsistencyLevel.Quorum, ConsistencyLevel.Serial)]
+        [TestCase(ConsistencyLevel.Quorum, ConsistencyLevel.LocalSerial)]
+        public void Should_UseSerialConsistencyLevelSpecified_When_ConditionalQuery(
+            ConsistencyLevel consistencyLevel, ConsistencyLevel serialConsistency)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
                 const string conditionalQuery = "update tbl_serial set value=2 where id=1 if exists";
@@ -134,20 +136,18 @@ namespace Cassandra.IntegrationTests.Core
                                                                 .SetSerialConsistencyLevel(serialConsistency);
                 var result = session.Execute(simpleStatement);
                 Assert.AreEqual(consistencyLevel, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, conditionalQuery, consistencyLevelString, serialConsistencyLevelString);
+                VerifyConsistency(simulacronCluster, conditionalQuery, consistencyLevel, serialConsistency);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM", ConsistencyLevel.Serial, "SERIAL")]
-        [TestCase(ConsistencyLevel.LocalQuorum, "LOCAL_QUORUM", ConsistencyLevel.LocalSerial, "LOCAL_SERIAL")]
-        public void Should_UseSerialConsistencyLevel_From_QueryOptions(ConsistencyLevel consistencyLevel,
-                                                                       string consistencyLevelString,
-                                                                       ConsistencyLevel serialConsistency,
-                                                                       string serialConsistencyLevelString)
+        [TestCase(ConsistencyLevel.Quorum, ConsistencyLevel.Serial)]
+        [TestCase(ConsistencyLevel.LocalQuorum, ConsistencyLevel.LocalSerial)]
+        public void Should_UseSerialConsistencyLevel_From_QueryOptions(
+            ConsistencyLevel consistencyLevel, ConsistencyLevel serialConsistency)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(simulacronCluster.InitialContactPoint)
                                         .WithQueryOptions(new QueryOptions()
                                             .SetConsistencyLevel(consistencyLevel)
@@ -160,25 +160,23 @@ namespace Cassandra.IntegrationTests.Core
 
                 var result = session.Execute(simpleStatement);
                 Assert.AreEqual(consistencyLevel, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, conditionalQuery, consistencyLevelString,
-                                  serialConsistencyLevelString);
+                VerifyConsistency(simulacronCluster, conditionalQuery, consistencyLevel, serialConsistency);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM")]
-        [TestCase(ConsistencyLevel.All, "ALL")]
-        [TestCase(ConsistencyLevel.Any, "ANY")]
-        [TestCase(ConsistencyLevel.One, "ONE")]
-        [TestCase(ConsistencyLevel.Two, "TWO")]
-        [TestCase(ConsistencyLevel.Three, "THREE")]
-        [TestCase(ConsistencyLevel.LocalOne, "LOCAL_ONE")]
-        [TestCase(ConsistencyLevel.LocalQuorum, "LOCAL_QUORUM")]
-        public void Should_UseQueryOptionsCL_When_NotSetAtPreparedStatement(ConsistencyLevel consistencyLevel, 
-                                                                                string consistencyLevelString)
+        [TestCase(ConsistencyLevel.Quorum)]
+        [TestCase(ConsistencyLevel.All)]
+        [TestCase(ConsistencyLevel.Any)]
+        [TestCase(ConsistencyLevel.One)]
+        [TestCase(ConsistencyLevel.Two)]
+        [TestCase(ConsistencyLevel.Three)]
+        [TestCase(ConsistencyLevel.LocalOne)]
+        [TestCase(ConsistencyLevel.LocalQuorum)]
+        public void Should_UseQueryOptionsCL_When_NotSetAtPreparedStatement(ConsistencyLevel consistencyLevel)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .WithQueryOptions(new QueryOptions().SetConsistencyLevel(consistencyLevel))
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
@@ -188,18 +186,17 @@ namespace Cassandra.IntegrationTests.Core
                 var boundStmt = prepStmt.Bind(1);
                 var result = session.Execute(boundStmt);
                 Assert.AreEqual(consistencyLevel, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, prepQuery, consistencyLevelString, null, "EXECUTE");
+                VerifyConsistency(simulacronCluster, prepQuery, consistencyLevel, null, QueryType.Execute);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Serial, "SERIAL")]
-        [TestCase(ConsistencyLevel.LocalSerial, "LOCAL_SERIAL")]
-        public void Should_UseQueryOptionsSerialCL_When_NotSetAtPreparedStatement(ConsistencyLevel consistencyLevel, 
-                                                                            string consistencyLevelString)
+        [TestCase(ConsistencyLevel.Serial)]
+        [TestCase(ConsistencyLevel.LocalSerial)]
+        public void Should_UseQueryOptionsSerialCL_When_NotSetAtPreparedStatement(ConsistencyLevel consistencyLevel)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .WithQueryOptions(new QueryOptions().SetSerialConsistencyLevel(consistencyLevel))
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
@@ -209,23 +206,23 @@ namespace Cassandra.IntegrationTests.Core
                 var boundStmt = prepStmt.Bind(1);
                 var result = session.Execute(boundStmt);
                 Assert.AreEqual(ConsistencyLevel.LocalOne, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, prepQuery, "LOCAL_ONE", consistencyLevelString, "EXECUTE");
+                VerifyConsistency(simulacronCluster, prepQuery, ConsistencyLevel.LocalOne, consistencyLevel, QueryType.Execute);
             }
         }
 
         [Test]
-        [TestCase(ConsistencyLevel.Quorum, "QUORUM")]
-        [TestCase(ConsistencyLevel.All, "ALL")]
-        [TestCase(ConsistencyLevel.Any, "ANY")]
-        [TestCase(ConsistencyLevel.One, "ONE")]
-        [TestCase(ConsistencyLevel.Two, "TWO")]
-        [TestCase(ConsistencyLevel.Three, "THREE")]
-        [TestCase(ConsistencyLevel.LocalOne, "LOCAL_ONE")]
-        [TestCase(ConsistencyLevel.LocalQuorum, "LOCAL_QUORUM")]
-        public void Should_UsePreparedStatementCL_When_Set(ConsistencyLevel consistencyLevel, string consistencyLevelString)
+        [TestCase(ConsistencyLevel.Quorum)]
+        [TestCase(ConsistencyLevel.All)]
+        [TestCase(ConsistencyLevel.Any)]
+        [TestCase(ConsistencyLevel.One)]
+        [TestCase(ConsistencyLevel.Two)]
+        [TestCase(ConsistencyLevel.Three)]
+        [TestCase(ConsistencyLevel.LocalOne)]
+        [TestCase(ConsistencyLevel.LocalQuorum)]
+        public void Should_UsePreparedStatementCL_When_Set(ConsistencyLevel consistencyLevel)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3,3" } ))
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(simulacronCluster.InitialContactPoint).Build())
             {
                 var session = cluster.Connect();
@@ -234,20 +231,25 @@ namespace Cassandra.IntegrationTests.Core
                 var boundStmt = prepStmt.Bind(1).SetConsistencyLevel(consistencyLevel);
                 var result = session.Execute(boundStmt);
                 Assert.AreEqual(consistencyLevel, result.Info.AchievedConsistency);
-                VerifyConsistency(simulacronCluster, prepQuery, consistencyLevelString, null, "EXECUTE");
+                VerifyConsistency(simulacronCluster, prepQuery, consistencyLevel, null, QueryType.Execute);
             }
         }
 
-        private static void VerifyConsistency(SimulacronCluster simulacronCluster, string query, string consistency, 
-                                              string serialConsistency = null, string queryType = "QUERY")
+        private static void VerifyConsistency(SimulacronCluster simulacronCluster, string query, ConsistencyLevel consistency, 
+                                              ConsistencyLevel? serialConsistency = null, QueryType queryType = QueryType.Query)
         {
             var executedQueries = simulacronCluster.GetQueries(query, queryType);
             Assert.NotNull(executedQueries);
             var log = executedQueries.First();
-            Assert.AreEqual(consistency, log.consistency_level.ToString());
-            if (serialConsistency != null)
+            Assert.AreEqual(consistency, log.ConsistencyLevel);
+
+            if (serialConsistency == null)
             {
-                Assert.AreEqual(serialConsistency, log.serial_consistency_level.ToString());
+                Assert.AreEqual(ConsistencyLevel.Serial, log.SerialConsistencyLevel);
+            }
+            else
+            {
+                Assert.AreEqual(serialConsistency, log.SerialConsistencyLevel);
             }
         }
     }

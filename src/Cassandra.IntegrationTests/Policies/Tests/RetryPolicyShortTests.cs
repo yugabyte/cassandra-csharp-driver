@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2017 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -15,38 +15,38 @@
 //
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
-
+using System.Threading.Tasks;
+using Cassandra.IntegrationTests.SimulacronAPI;
+using Cassandra.IntegrationTests.SimulacronAPI.PrimeBuilder.Then;
 using Cassandra.IntegrationTests.TestBase;
-using Cassandra.IntegrationTests.TestClusterManagement;
 using Cassandra.IntegrationTests.TestClusterManagement.Simulacron;
+using Cassandra.Tests;
+using Newtonsoft.Json;
 
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Policies.Tests
 {
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Threading.Tasks;
-
-    [TestFixture, Category("short")]
+    [TestFixture, Category(TestCategory.Short)]
     public class RetryPolicyShortTests : TestGlobals
     {
-        [OneTimeTearDown]
-        public void OnTearDown()
+        public static object[] RetryPolicyExtendedData =
         {
-            TestClusterManager.TryRemove();
-        }
+            new object[] { ServerError.IsBootstrapping, typeof(IsBootstrappingException) },
+            new object[] { ServerError.Overloaded, typeof(OverloadedException) }
+        };
 
-        [TestCase("overloaded", typeof(OverloadedException))]
-        [TestCase("is_bootstrapping", typeof(IsBootstrappingException))]
-        public void RetryPolicy_Extended(string resultError, Type exceptionType)
+        [TestCaseSource(nameof(RetryPolicyShortTests.RetryPolicyExtendedData))]
+        public void RetryPolicy_Extended(ServerError resultError, Type exceptionType)
         {
             using (var simulacronCluster = SimulacronCluster.CreateNew(new SimulacronOptions()))
             {
                 var contactPoint = simulacronCluster.InitialContactPoint;
                 var extendedRetryPolicy = new TestExtendedRetryPolicy();
-                var builder = Cluster.Builder()
+                var builder = ClusterBuilder()
                                      .AddContactPoint(contactPoint)
                                      .WithRetryPolicy(extendedRetryPolicy)
                                      .WithReconnectionPolicy(new ConstantReconnectionPolicy(long.MaxValue));
@@ -55,19 +55,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                     var session = (Session)cluster.Connect();
                     const string cql = "select * from table1";
 
-                    var primeQuery = new
-                    {
-                        when = new { query = cql },
-                        then = new
-                        {
-                            result = resultError,
-                            delay_in_ms = 0,
-                            message = resultError,
-                            ignore_on_prepare = false
-                        }
-                    };
-
-                    simulacronCluster.Prime(primeQuery);
+                    simulacronCluster.PrimeFluent(b => b.WhenQuery(cql).ThenServerError(resultError, resultError.Value));
                     Exception throwedException = null;
                     try
                     {
@@ -105,10 +93,11 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                     nodes[2],
                     nodes[0]
                 };
-                var currentHostRetryPolicy = new CurrentHostRetryPolicy(10, i => queryPlan[0].Stop());
+                await queryPlan[0].Stop().ConfigureAwait(false);
+                var currentHostRetryPolicy = new CurrentHostRetryPolicy(10, null);
                 var loadBalancingPolicy = new CustomLoadBalancingPolicy(
                     queryPlan.Select(n => n.ContactPoint).ToArray());
-                var builder = Cluster.Builder()
+                var builder = ClusterBuilder()
                                      .AddContactPoint(contactPoint)
                                      .WithSocketOptions(new SocketOptions()
                                                         .SetConnectTimeoutMillis(10000)
@@ -120,33 +109,9 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                     var session = (Session)cluster.Connect();
                     const string cql = "select * from table2";
 
-                    var primeQueryFirstNode = new
-                    {
-                        when = new { query = cql },
-                        then = new
-                        {
-                            result = "overloaded",
-                            delay_in_ms = 0,
-                            message = "overloaded",
-                            ignore_on_prepare = false
-                        }
-                    };
-
-                    var primeQuerySecondNode = new
-                    {
-                        when = new { query = cql },
-                        then = new
-                        {
-                            result = "success",
-                            delay_in_ms = 0,
-                            rows = new[] { "test1", "test2" }.Select(v => new { text = v }).ToArray(),
-                            column_types = new { text = "ascii" },
-                            ignore_on_prepare = false
-                        }
-                    };
-
-                    queryPlan[0].Prime(primeQueryFirstNode);
-                    queryPlan[1].Prime(primeQuerySecondNode);
+                    queryPlan[1].PrimeFluent(
+                        b => b.WhenQuery(cql).
+                               ThenRowsSuccess(new[] { ("text", DataType.Ascii) }, rows => rows.WithRow("test1").WithRow("test2")));
 
                     if (async)
                     {
@@ -158,10 +123,19 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                         session.Execute(new SimpleStatement(cql).SetConsistencyLevel(ConsistencyLevel.One));
                     }
 
-                    Assert.AreEqual(1, currentHostRetryPolicy.RequestErrorCounter);
-                    Assert.AreEqual(1, (await queryPlan[0].GetQueriesAsync(cql).ConfigureAwait(false)).Count);
-                    Assert.AreEqual(1, (await queryPlan[1].GetQueriesAsync(cql).ConfigureAwait(false)).Count);
-                    Assert.AreEqual(0, (await queryPlan[2].GetQueriesAsync(cql).ConfigureAwait(false)).Count);
+                    var queriesFirstNode = await queryPlan[0].GetQueriesAsync(cql).ConfigureAwait(false);
+                    var queriesFirstNodeString = string.Join(Environment.NewLine, queriesFirstNode.Select<dynamic, string>(obj => JsonConvert.SerializeObject(obj)));
+                    var queriesSecondNode = await queryPlan[1].GetQueriesAsync(cql).ConfigureAwait(false);
+                    var queriesSecondNodeString = string.Join(Environment.NewLine, queriesSecondNode.Select<dynamic, string>(obj => JsonConvert.SerializeObject(obj)));
+                    var queriesThirdNode = await queryPlan[2].GetQueriesAsync(cql).ConfigureAwait(false);
+                    var queriesThirdNodeString = string.Join(Environment.NewLine, queriesThirdNode.Select<dynamic, string>(obj => JsonConvert.SerializeObject(obj)));
+                    var allQueries = new { First = queriesFirstNodeString, Second = queriesSecondNodeString, Third = queriesThirdNodeString };
+                    var allQueriesString = JsonConvert.SerializeObject(allQueries);
+
+                    Assert.AreEqual(0, currentHostRetryPolicy.RequestErrorCounter, allQueriesString);
+                    Assert.AreEqual(0, queriesFirstNode.Count, allQueriesString);
+                    Assert.AreEqual(1, queriesSecondNode.Count, allQueriesString);
+                    Assert.AreEqual(0, queriesThirdNode.Count, allQueriesString);
                 }
             }
         }
@@ -178,7 +152,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                 var currentHostRetryPolicy = new CurrentHostRetryPolicy(10, null);
                 var loadBalancingPolicy = new CustomLoadBalancingPolicy(
                     nodes.Select(n => n.ContactPoint).ToArray());
-                var builder = Cluster.Builder()
+                var builder = ClusterBuilder()
                                      .AddContactPoint(contactPoint)
                                      .WithSocketOptions(new SocketOptions()
                                                         .SetConnectTimeoutMillis(10000)
@@ -190,33 +164,13 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                     var session = (Session)cluster.Connect();
                     const string cql = "select * from table2";
 
-                    var primeQueryFirstNode = new
-                    {
-                        when = new { query = cql },
-                        then = new
-                        {
-                            result = "overloaded",
-                            delay_in_ms = 0,
-                            message = "overloaded",
-                            ignore_on_prepare = false
-                        }
-                    };
+                    nodes[0].PrimeFluent(
+                        b => b.WhenQuery(cql).
+                               ThenOverloaded("overloaded"));
 
-                    var primeQuerySecondNode = new
-                    {
-                        when = new { query = cql },
-                        then = new
-                        {
-                            result = "success",
-                            delay_in_ms = 0,
-                            rows = new[] { "test1", "test2" }.Select(v => new { text = v }).ToArray(),
-                            column_types = new { text = "ascii" },
-                            ignore_on_prepare = false
-                        }
-                    };
-
-                    nodes[0].Prime(primeQueryFirstNode);
-                    nodes[1].Prime(primeQuerySecondNode);
+                    nodes[1].PrimeFluent(
+                        b => b.WhenQuery(cql).
+                               ThenRowsSuccess(new[] { ("text", DataType.Ascii) }, rows => rows.WithRow("test1").WithRow("test2")));
 
                     if (async)
                     {

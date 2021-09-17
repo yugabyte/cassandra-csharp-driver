@@ -1,14 +1,31 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Cassandra.IntegrationTests.TestBase;
+using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [Category("short")]
+    [Category(TestCategory.Short), Category(TestCategory.RealCluster), Category(TestCategory.ServerApi)]
     public class TimeUuidSerializationTests : SharedClusterTest
     {
         private const string AllTypesTableName = "all_formats_table";
@@ -19,7 +36,7 @@ namespace Cassandra.IntegrationTests.Core
         protected override string[] SetupQueries => new[]
         {
             $"CREATE TABLE {MinMaxTimeUuidTable} (id uuid, timeuuid_sample timeuuid, PRIMARY KEY((id), timeuuid_sample))",
-            String.Format(TestUtils.CreateTableAllTypes, AllTypesTableName)
+            string.Format(TestUtils.CreateTableAllTypes, AllTypesTableName)
         };
         
         public override void OneTimeSetUp()
@@ -27,7 +44,7 @@ namespace Cassandra.IntegrationTests.Core
             base.OneTimeSetUp();
             var insertQuery = $"INSERT INTO {AllTypesTableName} (id, timeuuid_sample) VALUES (?, ?)";
             var selectQuery = $"SELECT id, timeuuid_sample, dateOf(timeuuid_sample) FROM {AllTypesTableName} WHERE id = ?";
-            if (CassandraVersion >= new Version(2, 2))
+            if (TestClusterManager.CheckCassandraVersion(false, new Version(2, 2), Comparison.GreaterThanOrEqualsTo))
             {
                 selectQuery =
                     $"SELECT id, timeuuid_sample, toTimestamp(timeuuid_sample) as timeuuid_date_value FROM {AllTypesTableName} WHERE id = ?";

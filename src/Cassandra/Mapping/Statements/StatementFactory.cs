@@ -1,9 +1,25 @@
-﻿using System;
-using System.Collections.Concurrent;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Cassandra.Tasks;
+
+using Cassandra.Collections;
 
 namespace Cassandra.Mapping.Statements
 {
@@ -12,7 +28,7 @@ namespace Cassandra.Mapping.Statements
     /// </summary>
     internal class StatementFactory
     {
-        private readonly ConcurrentDictionary<CacheKey, Task<PreparedStatement>> _statementCache;
+        private readonly IThreadSafeDictionary<CacheKey, Task<PreparedStatement>> _statementCache;
         private static readonly Logger Logger = new Logger(typeof(StatementFactory));
         private int _statementCacheCount;
 
@@ -21,7 +37,7 @@ namespace Cassandra.Mapping.Statements
         public StatementFactory()
         {
             MaxPreparedStatementsThreshold = 500;
-            _statementCache = new ConcurrentDictionary<CacheKey, Task<PreparedStatement>>();
+            _statementCache = new CopyOnWriteDictionary<CacheKey, Task<PreparedStatement>>();
         }
 
         /// <summary>
@@ -49,7 +65,9 @@ namespace Cassandra.Mapping.Statements
             var prepareTask = _statementCache.GetOrAdd(psCacheKey, _ =>
             {
                 wasPreviouslyCached = false;
-                return session.PrepareAsync(query);
+
+                // Use Task.Run to spend as little time as possible inside the collection lock
+                return Task.Run(() => session.PrepareAsync(query));
             });
 
             PreparedStatement ps;
@@ -61,11 +79,12 @@ namespace Cassandra.Mapping.Statements
             {
                 // The exception was caused from awaiting upon a Task that was previously cached
                 // It's possible that the schema or topology changed making this query preparation to succeed
-                // in a new attemp
-                prepareTask = session.PrepareAsync(query);
+                // in a new attempt
+                prepareTask = _statementCache.CompareAndUpdate(
+                    psCacheKey,
+                    (k, v) => object.ReferenceEquals(v, prepareTask), 
+                    (k, v) => Task.Run(() => session.PrepareAsync(query)));
                 ps = await prepareTask.ConfigureAwait(false);
-                // AddOrUpdate() returns a task which we already waited upon, its safe to call Forget()
-                _statementCache.AddOrUpdate(psCacheKey, prepareTask, (k, v) => prepareTask).Forget();
             }
 
             if (!wasPreviouslyCached)
@@ -100,6 +119,7 @@ namespace Cassandra.Mapping.Statements
         public async Task<BatchStatement> GetBatchStatementAsync(ISession session, ICqlBatch cqlBatch)
         {
             // Get all the statements async in parallel, then add to batch
+            // execution profile is not used here because no statement is prepared or executed in this method
             var childStatements = await Task
                 .WhenAll(cqlBatch.Statements.Select(cql => GetStatementAsync(session, cql, cqlBatch.Options.NoPrepare)))
                 .ConfigureAwait(false);
@@ -143,7 +163,7 @@ namespace Cassandra.Mapping.Statements
             {
                 if (ReferenceEquals(null, obj)) return false;
                 if (ReferenceEquals(this, obj)) return true;
-                return obj.GetType() == GetType() && Equals((CacheKey) obj);
+                return obj.GetType() == GetType() && Equals((CacheKey)obj);
             }
 
             public override int GetHashCode()

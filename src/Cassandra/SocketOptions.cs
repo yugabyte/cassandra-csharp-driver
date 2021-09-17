@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -44,6 +44,7 @@ namespace Cassandra
         private bool _useStreamMode;
         private int _readTimeoutMillis = DefaultReadTimeoutMillis;
         private int _defunctReadTimeoutThreshold = DefaultDefunctReadTimeoutThreshold;
+        private int _metadataAbortTimeout =  5 * 60000;
 
         /// <summary>
         /// Gets the number of milliseconds to wait for the socket to connect
@@ -120,6 +121,8 @@ namespace Cassandra
         {
             get { return _readTimeoutMillis; }
         }
+
+        internal int MetadataAbortTimeout => _metadataAbortTimeout;
 
         /// <summary>
         /// Gets the amount of requests that simultaneously have to timeout before closing the connection.
@@ -219,6 +222,12 @@ namespace Cassandra
         public SocketOptions SetDefunctReadTimeoutThreshold(int amountOfTimeouts)
         {
             _defunctReadTimeoutThreshold = amountOfTimeouts;
+            return this;
+        }
+
+        internal SocketOptions SetMetadataAbortTimeout(int metadataAbortTimeout)
+        {
+            _metadataAbortTimeout = metadataAbortTimeout;
             return this;
         }
     }

@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 using System;
 using System.Collections.Generic;
 using Cassandra.Data.Linq;
-using Cassandra.IntegrationTests.Linq.LinqMethods;
 using NUnit.Framework;
 #pragma warning disable 618
 

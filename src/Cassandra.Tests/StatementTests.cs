@@ -1,7 +1,26 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using Cassandra.Requests;
 using Cassandra.Serialization;
+using Cassandra.SessionManagement;
+using Cassandra.Tests.ExecutionProfiles;
 using Moq;
 using NUnit.Framework;
 #pragma warning disable 618
@@ -13,9 +32,10 @@ namespace Cassandra.Tests
     {
         private const string Query = "SELECT * ...";
 
-        private static PreparedStatement GetPrepared(string query = Query, RowSetMetadata metadata = null)
+        private static PreparedStatement GetPrepared(string query = Query, RowSetMetadata metadata = null, RowSetMetadata resultRowsMetadata = null)
         {
-            return new PreparedStatement(metadata, new byte[0], query, null, new Serializer(ProtocolVersion.MaxSupported));
+            return new PreparedStatement(metadata, new byte[0], new ResultMetadata(null, resultRowsMetadata), query, null,
+                new SerializerManager(ProtocolVersion.MaxSupported));
         }
 
         [Test]
@@ -146,7 +166,7 @@ namespace Cassandra.Tests
             Assert.Null(ps.RoutingKey);
             var bound = ps.Bind("dummy name", 1000);
             Assert.NotNull(bound.RoutingKey);
-            CollectionAssert.AreEqual(new Serializer(ProtocolVersion.MaxSupported).Serialize(1000), bound.RoutingKey.RawRoutingKey);
+            CollectionAssert.AreEqual(new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer().Serialize(1000), bound.RoutingKey.RawRoutingKey);
         }
 
         [Test]
@@ -179,7 +199,7 @@ namespace Cassandra.Tests
             Assert.Null(ps.RoutingKey);
             var bound = ps.Bind(2001, 1001);
             Assert.NotNull(bound.RoutingKey);
-            var serializer = new Serializer(ProtocolVersion.MaxSupported);
+            var serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             var expectedRoutingKey = new byte[0]
                 .Concat(new byte[] {0, 4})
                 .Concat(serializer.Serialize(1001))
@@ -196,7 +216,7 @@ namespace Cassandra.Tests
             var stmt = new SimpleStatement(Query, "id1");
             Assert.Null(stmt.RoutingKey);
             stmt.SetRoutingValues("id1");
-            stmt.Serializer = new Serializer(ProtocolVersion.MaxSupported);
+            stmt.Serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             CollectionAssert.AreEqual(stmt.Serializer.Serialize("id1"), stmt.RoutingKey.RawRoutingKey);
         }
 
@@ -206,7 +226,7 @@ namespace Cassandra.Tests
             var stmt = new SimpleStatement(Query, "id1", "id2", "val1");
             Assert.Null(stmt.RoutingKey);
             stmt.SetRoutingValues("id1", "id2");
-            stmt.Serializer = new Serializer(ProtocolVersion.MaxSupported);
+            stmt.Serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             var expectedRoutingKey = new byte[0]
                 .Concat(new byte[] { 0, 3 })
                 .Concat(stmt.Serializer.Serialize("id1"))
@@ -223,7 +243,7 @@ namespace Cassandra.Tests
             var batch = new BatchStatement();
             Assert.Null(batch.RoutingKey);
             batch.SetRoutingValues("id1-value");
-            batch.Serializer = new Serializer(ProtocolVersion.MaxSupported);
+            batch.Serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             CollectionAssert.AreEqual(batch.Serializer.Serialize("id1-value"), batch.RoutingKey.RawRoutingKey);
         }
 
@@ -233,7 +253,7 @@ namespace Cassandra.Tests
             var batch = new BatchStatement();
             Assert.Null(batch.RoutingKey);
             batch.SetRoutingValues("id11", "id22");
-            batch.Serializer = new Serializer(ProtocolVersion.MaxSupported);
+            batch.Serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             var expectedRoutingKey = new byte[0]
                 .Concat(new byte[] { 0, 4 })
                 .Concat(batch.Serializer.Serialize("id11"))
@@ -242,6 +262,15 @@ namespace Cassandra.Tests
                 .Concat(batch.Serializer.Serialize("id22"))
                 .Concat(new byte[] { 0 });
             CollectionAssert.AreEqual(expectedRoutingKey, batch.RoutingKey.RawRoutingKey);
+        }
+
+        [Test]
+        public void BatchStatement_Should_Throw_When_Child_Statement_Has_Proxy_Auth_Set()
+        {
+            var batch = new BatchStatement();
+            var childStatement = new SimpleStatement("DELETE FROM tbl1 WHERE KEY = ?", Guid.NewGuid());
+            childStatement.ExecutingAs("bob");
+            Assert.Throws<ArgumentException>(() => batch.Add(childStatement));
         }
 
         [Test]
@@ -273,19 +302,48 @@ namespace Cassandra.Tests
         {
             var rawRoutingKey = new byte[] {1, 2, 3, 4};
             var s1MockCalled = 0;
+            var s1MockCalledKeyspace = 0;
             var s2MockCalled = 0;
+            var s2MockCalledKeyspace = 0;
 
             var s1Mock = new Mock<Statement>(MockBehavior.Loose);
             s1Mock.Setup(s => s.RoutingKey).Returns(new RoutingKey(rawRoutingKey)).Callback(() => s1MockCalled++);
+            s1Mock.Setup(s => s.Keyspace).Returns("ks1").Callback(() => s1MockCalledKeyspace++);
             var s2Mock = new Mock<Statement>(MockBehavior.Loose);
             s2Mock.Setup(s => s.RoutingKey).Returns((RoutingKey)null).Callback(() => s2MockCalled++);
+            s2Mock.Setup(s => s.Keyspace).Returns((string)null).Callback(() => s2MockCalledKeyspace++);
 
             var batch = new BatchStatement().Add(s1Mock.Object).Add(s2Mock.Object);
             Assert.AreEqual(BitConverter.ToString(rawRoutingKey),
                 BitConverter.ToString(batch.RoutingKey.RawRoutingKey));
+            Assert.AreEqual("ks1", batch.Keyspace);
 
             Assert.AreEqual(1, s1MockCalled);
             Assert.AreEqual(0, s2MockCalled);
+            Assert.AreEqual(1, s1MockCalledKeyspace);
+            Assert.AreEqual(0, s2MockCalledKeyspace);
+        }
+
+        [Test]
+        public void BatchStatement_Should_UseRoutingKeyAndKeyspaceOfFirstStatement_When_TokenAwareLbpIsUsed()
+        {
+            var rawRoutingKey = new byte[] {1, 2, 3, 4};
+            var lbp = new TokenAwarePolicy(new ClusterTests.FakeLoadBalancingPolicy());
+            var clusterMock = Mock.Of<IInternalCluster>();
+            Mock.Get(clusterMock).Setup(c => c.GetReplicas(It.IsAny<string>(), It.IsAny<byte[]>()))
+                .Returns(new List<Host>());
+            Mock.Get(clusterMock).Setup(c => c.AllHosts())
+                .Returns(new List<Host>());
+            lbp.Initialize(clusterMock);
+            
+            var s1Mock = new Mock<Statement>(MockBehavior.Loose);
+            s1Mock.Setup(s => s.RoutingKey).Returns(new RoutingKey(rawRoutingKey));
+            s1Mock.Setup(s => s.Keyspace).Returns("ks1");
+            var batch = new BatchStatement().Add(s1Mock.Object);
+
+            var _ = lbp.NewQueryPlan("ks2", batch).ToList();
+
+            Mock.Get(clusterMock).Verify(c => c.GetReplicas("ks1", rawRoutingKey), Times.Once);
         }
     }
 }

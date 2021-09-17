@@ -40,24 +40,25 @@ namespace Cassandra.YugaByte.Tests
         public void Basic()
         {
             _session.Execute("DROP TABLE IF EXISTS books");
-            _session.Execute("CREATE TABLE books (id int PRIMARY KEY, details jsonb)");
+            _session.Execute("CREATE TABLE books (id int PRIMARY KEY, detail jsonb)");
 
-            var ps = _session.Prepare("INSERT INTO books (id, details) VALUES (?, ?)");
+            var ps = _session.Prepare("INSERT INTO books (id, detail) VALUES (?, ?)");
 
-            var details = new JObject();
-            details.Add("name", new JValue("Macbeth"));
+            var detail = new JObject();
+            detail.Add("name", new JValue("Macbeth"));
             var author = new JObject();
             author.Add("first_name", new JValue("William"));
             author.Add("last_name", new JValue("Shakespeare"));
-            var statement = ps.Bind(1, details.ToString());
+            //Console.WriteLine(detail.ToString());
+            var statement = ps.Bind(1, detail.ToString());
             _session.Execute(statement);
 
-            ps = _session.Prepare("SELECT details FROM books WHERE id=?");
+            ps = _session.Prepare("SELECT detail FROM books WHERE id=?");
             var rs = _session.Execute(ps.Bind(1));
             foreach (var row in rs)
             {
-                var parsedDetails = JObject.Parse(row.GetValue<string>("details"));
-                Assert.AreEqual(details, parsedDetails);
+                var parsedDetails = JObject.Parse(row.GetValue<string>("detail"));
+                Assert.AreEqual(detail, parsedDetails);
             }
         }
 

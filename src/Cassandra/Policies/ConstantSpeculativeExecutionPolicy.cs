@@ -1,7 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 
 // ReSharper disable once CheckNamespace
 namespace Cassandra
@@ -12,9 +25,6 @@ namespace Cassandra
     /// </summary>
     public class ConstantSpeculativeExecutionPolicy : ISpeculativeExecutionPolicy
     {
-        private readonly long _delay;
-        private readonly int _maxSpeculativeExecutions;
-
         /// <summary>
         /// Creates a new instance of a <see cref="ISpeculativeExecutionPolicy"/> that schedules a given
         ///  number of speculative executions, separated by a fixed delay.
@@ -23,8 +33,8 @@ namespace Cassandra
         /// <param name="maxSpeculativeExecutions">The number of speculative executions. Must be strictly positive.</param>
         public ConstantSpeculativeExecutionPolicy(long delay, int maxSpeculativeExecutions)
         {
-            _delay = delay;
-            _maxSpeculativeExecutions = maxSpeculativeExecutions;
+            Delay = delay;
+            MaxSpeculativeExecutions = maxSpeculativeExecutions;
             if (delay <= 0L)
             {
                 throw new ArgumentOutOfRangeException("delay", "The delay must be positive");
@@ -34,6 +44,10 @@ namespace Cassandra
                 throw new ArgumentOutOfRangeException("maxSpeculativeExecutions", "The maximum amount of speculative executions must be a positive number");
             }
         }
+
+        public long Delay { get; }
+
+        public int MaxSpeculativeExecutions { get; }
 
         public void Dispose()
         {
@@ -47,7 +61,7 @@ namespace Cassandra
 
         public ISpeculativeExecutionPlan NewPlan(string keyspace, IStatement statement)
         {
-            return new ConstantSpeculativeExecutionPlan(_delay, _maxSpeculativeExecutions);
+            return new ConstantSpeculativeExecutionPlan(Delay, MaxSpeculativeExecutions);
         }
 
         private class ConstantSpeculativeExecutionPlan : ISpeculativeExecutionPlan

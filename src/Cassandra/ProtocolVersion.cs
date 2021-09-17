@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2017 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 //   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
+//
 
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,7 @@ namespace Cassandra
 {
     /// <summary>
     /// Specifies the different protocol versions and provides methods (via extension methods) to check whether a
-    /// feature is supported in an specific version.
+    /// feature is supported in an specific version
     /// </summary>
     public enum ProtocolVersion : byte
     {
@@ -50,11 +51,15 @@ namespace Cassandra
         V5 = 0x05,
 
         /// <summary>
+        /// DSE protocol v2. DSE 6.0+.
+        /// </summary>
+        DseV2 = 0x42,
+
+        /// <summary>
         /// The higher protocol version that is supported by this driver.
         /// <para>When acquiring the first connection, it will use this version to start protocol negotiation.</para>
         /// </summary>
-        MaxSupported = V4,
-
+        MaxSupported = DseV2,
         /// <summary>
         /// The lower protocol version that is supported by this driver.
         /// </summary>
@@ -64,6 +69,8 @@ namespace Cassandra
     internal static class ProtocolVersionExtensions
     {
         private static readonly Logger Logger = new Logger(typeof(ProtocolVersion));
+        private static readonly Version Version60 = new Version(6, 0);
+        private static readonly Version Version40 = new Version(4, 0);
         private static readonly Version Version30 = new Version(3, 0);
         private static readonly Version Version22 = new Version(2, 2);
         private static readonly Version Version21 = new Version(2, 1);
@@ -72,34 +79,47 @@ namespace Cassandra
         /// <summary>
         /// Determines if the protocol version is supported by this driver.
         /// </summary>
-        public static bool IsSupported(this ProtocolVersion version)
+        public static bool IsSupported(this ProtocolVersion version, Configuration config)
         {
-            return version >= ProtocolVersion.V1 && version <= ProtocolVersion.V4;
+            if (version.IsBeta())
+            {
+                return config.AllowBetaProtocolVersions;
+            }
+
+            return version >= ProtocolVersion.MinSupported && version <= ProtocolVersion.MaxSupported;
         }
 
         /// <summary>
         /// Gets the first version number that is supported, lower than the one provided.
         /// Returns zero when there isn't a lower supported version.
         /// </summary>
-        /// <param name="version"></param>
         /// <returns></returns>
-        public static ProtocolVersion GetLowerSupported(this ProtocolVersion version)
+        public static ProtocolVersion GetLowerSupported(this ProtocolVersion version, Configuration config)
         {
-            if (version >= ProtocolVersion.V5)
+            var lowerVersion = version;
+            do
             {
-                return ProtocolVersion.V4;
-            }
-            if (version <= ProtocolVersion.V1)
-            {
-                return 0;
-            }
-            return version - 1;
+                if (lowerVersion > ProtocolVersion.V5)
+                {
+                    lowerVersion = ProtocolVersion.V5;
+                }
+                else if (lowerVersion <= ProtocolVersion.V1)
+                {
+                    lowerVersion = 0;
+                }
+                else
+                {
+                    lowerVersion = lowerVersion - 1;
+                }
+            } while (lowerVersion > 0 && !lowerVersion.IsSupported(config));
+
+            return lowerVersion;
         }
 
         /// <summary>
         /// Gets the highest supported protocol version collectively by the given hosts.
         /// </summary>
-        public static ProtocolVersion GetHighestCommon(this ProtocolVersion version, IEnumerable<Host> hosts)
+        public static ProtocolVersion GetHighestCommon(this ProtocolVersion version, Configuration config, IEnumerable<Host> hosts)
         {
             var maxVersion = (byte)version;
             var v3Requirement = false;
@@ -107,8 +127,26 @@ namespace Cassandra
 
             foreach (var host in hosts)
             {
+                if (host.DseVersion != null && host.DseVersion >= Version60)
+                {
+                    v3Requirement = true;
+                    maxVersion = Math.Min((byte)ProtocolVersion.DseV2, maxVersion);
+                    maxVersionWith3OrMore = maxVersion;
+                    continue;
+                }
+
                 var cassandraVersion = host.CassandraVersion;
-                if (cassandraVersion >= Version30)
+
+                if (cassandraVersion >= Version40)
+                {
+                    // Anything 4.0.0+ has a max protocol version of V5 and requires at least V3.
+                    v3Requirement = true;
+                    maxVersion = config.AllowBetaProtocolVersions 
+                        ? Math.Min((byte)ProtocolVersion.V5, maxVersion) 
+                        : Math.Min((byte)ProtocolVersion.V4, maxVersion);
+                    maxVersionWith3OrMore = maxVersion;
+                }
+                else if (cassandraVersion >= Version30)
                 {
                     // Anything 3.0.0+ has a max protocol version of V4 and requires at least V3.
                     v3Requirement = true;
@@ -175,6 +213,22 @@ namespace Cassandra
         {
             return version >= ProtocolVersion.V3;
         }
+        
+        /// <summary>
+        /// Determines whether the protocol supports flags in BATCH requests.
+        /// </summary>
+        public static bool SupportsBatchFlags(this ProtocolVersion version)
+        {
+            return version >= ProtocolVersion.V3;
+        }
+
+        /// <summary>
+        /// Determines whether the protocol supports named values in QUERY and EXECUTE requests.
+        /// </summary>
+        public static bool SupportsNamedValuesInQueries(this ProtocolVersion version)
+        {
+            return version >= ProtocolVersion.V3;
+        }
 
         /// <summary>
         /// Determines whether the protocol supports unset parameters.
@@ -192,6 +246,38 @@ namespace Cassandra
         public static bool SupportsBatch(this ProtocolVersion version)
         {
             return version >= ProtocolVersion.V2;
+        }
+
+        /// <summary>
+        /// Determines if the protocol supports result_metadata_id on PREPARED response and EXECUTE request.
+        /// </summary>
+        public static bool SupportsResultMetadataId(this ProtocolVersion version)
+        {
+            return version >= ProtocolVersion.V5;
+        }
+
+        /// <summary>
+        /// Determines if the protocol supports to send the Keyspace as part of the PREPARE, QUERY and BATCH.
+        /// </summary>
+        public static bool SupportsKeyspaceInRequest(this ProtocolVersion version)
+        {
+            return version >= ProtocolVersion.V5;
+        }
+
+        /// <summary>
+        /// Determines if the protocol supports sending driver information in the STARTUP request.
+        /// </summary>
+        public static bool SupportsDriverInfoInStartup(this ProtocolVersion version)
+        {
+            return version >= ProtocolVersion.V5;
+        }
+
+        /// <summary>
+        /// Determines if the protocol provides a map of reasons as part of read_failure and write_failure.
+        /// </summary>
+        public static bool SupportsFailureReasons(this ProtocolVersion version)
+        {
+            return version >= ProtocolVersion.V5;
         }
 
         /// <summary>
@@ -225,6 +311,21 @@ namespace Cassandra
         public static bool CanStartupResponseErrorBeWrapped(this ProtocolVersion version)
         {
             return version >= ProtocolVersion.V4;
+        }
+
+        public static int GetHeaderSize(this ProtocolVersion version)
+        {
+            if (version.Uses2BytesStreamIds())
+            {
+                return 9;
+            }
+
+            return 8;
+        }
+
+        public static bool IsBeta(this ProtocolVersion version)
+        {
+            return version == ProtocolVersion.V5;
         }
     }
 }

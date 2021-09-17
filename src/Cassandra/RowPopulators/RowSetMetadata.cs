@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -39,7 +39,8 @@ namespace Cassandra
     {
         GlobalTablesSpec = 0x0001,
         HasMorePages = 0x0002,
-        NoMetadata = 0x0004
+        NoMetadata = 0x0004,
+        MetadataChanged = 0x0008
     }
 
     /// <summary>
@@ -68,6 +69,7 @@ namespace Cassandra
         Time = 0x0012,
         SmallInt = 0x0013,
         TinyInt = 0x0014,
+        Duration = 0x0015,
         List = 0x0020,
         Map = 0x0021,
         Set = 0x0022,
@@ -270,6 +272,11 @@ namespace Cassandra
         internal byte[] PagingState { get; private set; }
 
         /// <summary>
+        /// Gets the new_metadata_id.
+        /// </summary>
+        internal byte[] NewResultMetadataId { get; }
+
+        /// <summary>
         /// Returns the keyspace as defined in the metadata response by global tables spec or the first column.
         /// </summary>
         internal string Keyspace { get; private set; }
@@ -281,6 +288,16 @@ namespace Cassandra
         /// It returns null when partition keys were not parsed.
         /// </summary>
         internal int[] PartitionKeys { get; private set; }
+        
+        /// <summary>
+        /// Whether the new_metadata_id was set.
+        /// </summary>
+        internal bool HasNewResultMetadataId() => NewResultMetadataId != null;
+
+        // for testing
+        internal RowSetMetadata()
+        {
+        }
 
         internal RowSetMetadata(FrameReader reader, bool parsePartitionKeys = false)
         {
@@ -303,15 +320,22 @@ namespace Cassandra
 
             string gKsname = null;
             string gTablename = null;
-
+            
             if ((flags & RowSetMetadataFlags.HasMorePages) == RowSetMetadataFlags.HasMorePages)
             {
                 PagingState = reader.ReadBytes();
             }
+
+            if ((flags & RowSetMetadataFlags.MetadataChanged) == RowSetMetadataFlags.MetadataChanged)
+            {
+                NewResultMetadataId = reader.ReadShortBytes();
+            }
+            
             if ((flags & RowSetMetadataFlags.NoMetadata) == RowSetMetadataFlags.NoMetadata)
             {
                 return;
             }
+
             if ((flags & RowSetMetadataFlags.GlobalTablesSpec) == RowSetMetadataFlags.GlobalTablesSpec)
             {
                 gKsname = reader.ReadString();

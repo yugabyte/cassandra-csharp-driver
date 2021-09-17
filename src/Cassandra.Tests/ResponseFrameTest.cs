@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ namespace Cassandra.Tests
         {
             // ReSharper disable once ObjectCreationAsStatement
             Assert.Throws<ArgumentNullException>(() => new Frame(
-                null, new MemoryStream(), new Serializer(ProtocolVersion.MaxSupported)));
+                null, new MemoryStream(), new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer(), null));
         }
 
         [Test]
@@ -36,7 +36,7 @@ namespace Cassandra.Tests
         {
             // ReSharper disable once ObjectCreationAsStatement
             Assert.Throws<ArgumentNullException>(() => new Frame(
-                new FrameHeader(), null, new Serializer(ProtocolVersion.MaxSupported)));
+                new FrameHeader(), null, new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer(), null));
         } 
     }
 }

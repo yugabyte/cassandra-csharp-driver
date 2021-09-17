@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Cassandra.MetadataHelpers;
 using Cassandra.Tasks;
 
 namespace Cassandra
@@ -59,25 +60,62 @@ namespace Cassandra
         public IDictionary<string, int> Replication { get; }
 
         /// <summary>
+        ///  Returns the replication options for this keyspace.
+        /// </summary>
+        /// 
+        /// <returns>a dictionary containing the keyspace replication strategy options.</returns>
+        private IDictionary<string, string> ReplicationOptions { get; }
+
+        /// <summary>
         /// Determines whether the keyspace is a virtual keyspace or not.
         /// </summary>
         public bool IsVirtual { get; }
+        
+        /// <summary>
+        /// Returns the graph engine associated with this keyspace. Returns null if there isn't one.
+        /// </summary>
+        public string GraphEngine { get; }
 
-        internal KeyspaceMetadata(Metadata parent, string name, bool durableWrites, string strategyClass,
-                                  IDictionary<string, int> replicationOptions, bool isVirtual = false)
+        internal IReplicationStrategy Strategy { get; }
+        
+        internal KeyspaceMetadata(
+            Metadata parent, 
+            string name, 
+            bool durableWrites, 
+            string strategyClass,
+            IDictionary<string, string> replicationOptions,
+            IReplicationStrategyFactory replicationStrategyFactory,
+            string graphEngine,
+            bool isVirtual = false)
         {
             //Can not directly reference to schemaParser as it might change
             _parent = parent;
             Name = name;
             DurableWrites = durableWrites;
 
-            StrategyClass = strategyClass;
             if (strategyClass != null && strategyClass.StartsWith("org.apache.cassandra.locator."))
             {
-                StrategyClass = strategyClass.Replace("org.apache.cassandra.locator.", "");
+                strategyClass = strategyClass.Replace("org.apache.cassandra.locator.", "");
             }
-            Replication = replicationOptions;
+
+            StrategyClass = strategyClass;
+
+            var parsedReplicationOptions = replicationOptions == null
+                ? null 
+                : ParseReplicationFactors(replicationOptions);
+
+            Replication = parsedReplicationOptions == null 
+                ? null 
+                : ConvertReplicationOptionsToLegacy(parsedReplicationOptions);
+            
+            ReplicationOptions = replicationOptions;
             IsVirtual = isVirtual;
+            Strategy = 
+                (strategyClass == null || parsedReplicationOptions == null) 
+                ? null 
+                : replicationStrategyFactory.Create(StrategyClass, parsedReplicationOptions);
+
+            GraphEngine = graphEngine;
         }
 
         /// <summary>
@@ -89,29 +127,27 @@ namespace Cassandra
         public TableMetadata GetTableMetadata(string tableName)
         {
             return TaskHelper.WaitToComplete(
-                GetTableMetadataAsync(tableName), _parent.Configuration.ClientOptions.GetQueryAbortTimeout(2));
+                GetTableMetadataAsync(tableName), _parent.Configuration.DefaultRequestOptions.GetQueryAbortTimeout(2));
         }
 
-        internal Task<TableMetadata> GetTableMetadataAsync(string tableName)
+        internal async Task<TableMetadata> GetTableMetadataAsync(string tableName)
         {
-            TableMetadata tableMetadata;
-            if (_tables.TryGetValue(tableName, out tableMetadata))
+            if (_tables.TryGetValue(tableName, out var tableMetadata))
             {
                 //The table metadata is available in local cache
-                return TaskHelper.ToTask(tableMetadata);
+                return tableMetadata;
             }
-            return _parent.SchemaParser
-                .GetTable(Name, tableName)
-                .ContinueSync(table =>
-                {
-                    if (table == null)
-                    {
-                        return null;
-                    }
-                    //Cache it
-                    _tables.AddOrUpdate(tableName, table, (k, o) => table);
-                    return table;
-                });
+
+            var table = await _parent.SchemaParser.GetTableAsync(Name, tableName).ConfigureAwait(false);
+            
+            if (table == null)
+            {
+                return null;
+            }
+
+            //Cache it
+            _tables.AddOrUpdate(tableName, table, (k, o) => table);
+            return table;
         }
 
         /// <summary>
@@ -122,28 +158,27 @@ namespace Cassandra
         ///  exists, <c>null</c> otherwise.</returns>
         public MaterializedViewMetadata GetMaterializedViewMetadata(string viewName)
         {
+            return TaskHelper.WaitToComplete(
+                GetMaterializedViewMetadataAsync(viewName), _parent.Configuration.DefaultRequestOptions.GetQueryAbortTimeout(2));
+        }
+
+        private async Task<MaterializedViewMetadata> GetMaterializedViewMetadataAsync(string viewName)
+        {
+            if (_views.TryGetValue(viewName, out var v))
             {
-                //use a code block to avoid reusing 'view' field on lambdas
-                MaterializedViewMetadata view;
-                if (_views.TryGetValue(viewName, out view))
-                {
-                    //The table metadata is available in local cache
-                    return view;
-                }
+                //The table metadata is available in local cache
+                return v;
             }
-            var task = _parent.SchemaParser
-                .GetView(Name, viewName)
-                .ContinueSync(view =>
-                {
-                    if (view == null)
-                    {
-                        return null;
-                    }
-                    //Cache it
-                    _views.AddOrUpdate(viewName, view, (k, o) => view);
-                    return view;
-                });
-            return TaskHelper.WaitToComplete(task, _parent.Configuration.ClientOptions.GetQueryAbortTimeout(2));
+
+            var view = await _parent.SchemaParser.GetViewAsync(Name, viewName).ConfigureAwait(false);
+            if (view == null)
+            {
+                return null;
+            }
+
+            //Cache it
+            _views.AddOrUpdate(viewName, view, (k, o) => view);
+            return view;
         }
 
         /// <summary>
@@ -151,8 +186,7 @@ namespace Cassandra
         /// </summary>
         internal void ClearTableMetadata(string tableName)
         {
-            TableMetadata table;
-            _tables.TryRemove(tableName, out table);
+            _tables.TryRemove(tableName, out _);
         }
 
         /// <summary>
@@ -160,8 +194,7 @@ namespace Cassandra
         /// </summary>
         internal void ClearViewMetadata(string name)
         {
-            MaterializedViewMetadata view;
-            _views.TryRemove(name, out view);
+            _views.TryRemove(name, out _);
         }
 
         /// <summary>
@@ -169,8 +202,7 @@ namespace Cassandra
         /// </summary>
         internal void ClearFunction(string name, string[] signature)
         {
-            FunctionMetadata element;
-            _functions.TryRemove(GetFunctionKey(name, signature), out element);
+            _functions.TryRemove(KeyspaceMetadata.GetFunctionKey(name, signature), out _);
         }
 
         /// <summary>
@@ -178,8 +210,7 @@ namespace Cassandra
         /// </summary>
         internal void ClearAggregate(string name, string[] signature)
         {
-            AggregateMetadata element;
-            _aggregates.TryRemove(GetFunctionKey(name, signature), out element);
+            _aggregates.TryRemove(KeyspaceMetadata.GetFunctionKey(name, signature), out _);
         }
 
         /// <summary>
@@ -202,18 +233,20 @@ namespace Cassandra
         ///  keyspace tables names.</returns>
         public ICollection<string> GetTablesNames()
         {
-            return TaskHelper.WaitToComplete(_parent.SchemaParser.GetTableNames(Name));
+            return TaskHelper.WaitToComplete(_parent.SchemaParser.GetTableNamesAsync(Name));
         }
-
+        
         /// <summary>
-        ///  Return a <c>String</c> containing CQL queries representing this
-        ///  name and the table it contains. In other words, this method returns the
-        ///  queries that would allow to recreate the schema of this name, along with
-        ///  all its table. Note that the returned String is formatted to be human
-        ///  readable (for some definition of human readable at least).
+        /// <para>
+        ///  Deprecated. Please use <see cref="AsCqlQuery"/>.
+        /// </para>
+        /// <para>
+        ///  Returns a CQL query representing this keyspace. This method returns a single
+        ///  'CREATE KEYSPACE' query with the options corresponding to this name
+        ///  definition.
+        /// </para>
         /// </summary>
-        /// <returns>the CQL queries representing this name schema as a code
-        ///  String}.</returns>
+        /// <returns>the 'CREATE KEYSPACE' query corresponding to this name.</returns>
         public string ExportAsString()
         {
             var sb = new StringBuilder();
@@ -229,15 +262,14 @@ namespace Cassandra
         ///  'CREATE KEYSPACE' query with the options corresponding to this name
         ///  definition.
         /// </summary>
-        /// <returns>the 'CREATE KEYSPACE' query corresponding to this name.
-        ///  <see>#ExportAsString</see></returns>
+        /// <returns>the 'CREATE KEYSPACE' query corresponding to this name.</returns>
         public string AsCqlQuery()
         {
             var sb = new StringBuilder();
 
             sb.Append("CREATE KEYSPACE ").Append(CqlQueryTools.QuoteIdentifier(Name)).Append(" WITH ");
             sb.Append("REPLICATION = { 'class' : '").Append(StrategyClass).Append("'");
-            foreach (var rep in Replication)
+            foreach (var rep in ReplicationOptions)
             {
                 if (rep.Key == "class")
                 {
@@ -255,7 +287,7 @@ namespace Cassandra
         /// </summary>
         internal UdtColumnInfo GetUdtDefinition(string typeName)
         {
-            return TaskHelper.WaitToComplete(GetUdtDefinitionAsync(typeName), _parent.Configuration.ClientOptions.QueryAbortTimeout);
+            return TaskHelper.WaitToComplete(GetUdtDefinitionAsync(typeName), _parent.Configuration.DefaultRequestOptions.QueryAbortTimeout);
         }
 
         /// <summary>
@@ -263,7 +295,7 @@ namespace Cassandra
         /// </summary>
         internal Task<UdtColumnInfo> GetUdtDefinitionAsync(string typeName)
         {
-            return _parent.SchemaParser.GetUdtDefinition(Name, typeName);
+            return _parent.SchemaParser.GetUdtDefinitionAsync(Name, typeName);
         }
 
         /// <summary>
@@ -272,29 +304,32 @@ namespace Cassandra
         /// <returns>The function metadata or null if not found.</returns>
         public FunctionMetadata GetFunction(string functionName, string[] signature)
         {
+            return TaskHelper.WaitToComplete(
+                GetFunctionAsync(functionName, signature), _parent.Configuration.DefaultRequestOptions.QueryAbortTimeout);
+        }
+
+        private async Task<FunctionMetadata> GetFunctionAsync(string functionName, string[] signature)
+        {
             if (signature == null)
             {
                 signature = new string[0];
             }
-            FunctionMetadata func;
-            var key = GetFunctionKey(functionName, signature);
-            if (_functions.TryGetValue(key, out func))
+
+            var key = KeyspaceMetadata.GetFunctionKey(functionName, signature);
+            if (_functions.TryGetValue(key, out var func))
             {
                 return func;
             }
-            var signatureString = "[" + string.Join(",", signature.Select(s => "'" + s + "'")) + "]";
-            var t = _parent.SchemaParser
-                .GetFunction(Name, functionName, signatureString)
-                .ContinueSync(f =>
-                {
-                    if (f == null)
-                    {
-                        return null;
-                    }
-                    _functions.AddOrUpdate(key, f, (k, v) => f);
-                    return f;
-                });
-            return TaskHelper.WaitToComplete(t, _parent.Configuration.ClientOptions.QueryAbortTimeout);
+
+            var signatureString = _parent.SchemaParser.ComputeFunctionSignatureString(signature);
+            var f = await _parent.SchemaParser.GetFunctionAsync(Name, functionName, signatureString).ConfigureAwait(false);
+            if (f == null)
+            {
+                return null;
+            }
+
+            _functions.AddOrUpdate(key, f, (k, v) => f);
+            return f;
         }
 
         /// <summary>
@@ -303,34 +338,50 @@ namespace Cassandra
         /// <returns>The aggregate metadata or null if not found.</returns>
         public AggregateMetadata GetAggregate(string aggregateName, string[] signature)
         {
+            return TaskHelper.WaitToComplete(
+                GetAggregateAsync(aggregateName, signature), _parent.Configuration.DefaultRequestOptions.QueryAbortTimeout);
+        }
+
+        private async Task<AggregateMetadata> GetAggregateAsync(string aggregateName, string[] signature)
+        {
             if (signature == null)
             {
                 signature = new string[0];
             }
-            AggregateMetadata aggregate;
-            var key = GetFunctionKey(aggregateName, signature);
-            if (_aggregates.TryGetValue(key, out aggregate))
+
+            var key = KeyspaceMetadata.GetFunctionKey(aggregateName, signature);
+            if (_aggregates.TryGetValue(key, out var aggregate))
             {
                 return aggregate;
             }
-            var signatureString = "[" + string.Join(",", signature.Select(s => "'" + s + "'")) + "]";
-            var t = _parent.SchemaParser
-                .GetAggregate(Name, aggregateName, signatureString)
-                .ContinueSync(a =>
-                {
-                    if (a == null)
-                    {
-                        return null;
-                    }
-                    _aggregates.AddOrUpdate(key, a, (k, v) => a);
-                    return a;
-                });
-            return TaskHelper.WaitToComplete(t, _parent.Configuration.ClientOptions.QueryAbortTimeout);
+
+            var signatureString = _parent.SchemaParser.ComputeFunctionSignatureString(signature);
+            var a = await _parent.SchemaParser.GetAggregateAsync(Name, aggregateName, signatureString).ConfigureAwait(false);
+            if (a == null)
+            {
+                return null;
+            }
+
+            _aggregates.AddOrUpdate(key, a, (k, v) => a);
+            return a;
         }
 
         private static Tuple<string, string> GetFunctionKey(string name, string[] signature)
         {
-            return Tuple.Create(name, String.Join(",", signature));
+            return Tuple.Create(name, string.Join(",", signature));
+        }
+
+        /// <summary>
+        /// This is needed in order to avoid breaking the public API (see <see cref="Replication"/>
+        /// </summary>
+        private IDictionary<string, int> ConvertReplicationOptionsToLegacy(IDictionary<string, ReplicationFactor> replicationOptions)
+        {
+            return replicationOptions.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.AllReplicas);
+        }
+
+        private Dictionary<string, ReplicationFactor> ParseReplicationFactors(IDictionary<string, string> replicationOptions)
+        {
+            return replicationOptions.ToDictionary(kvp => kvp.Key, kvp => ReplicationFactor.Parse(kvp.Value));
         }
     }
 }

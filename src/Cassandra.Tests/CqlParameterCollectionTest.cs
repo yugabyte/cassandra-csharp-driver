@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -36,7 +36,6 @@ namespace Cassandra.Tests
             Assert.IsNotNull(target.SyncRoot);
             Assert.AreEqual(target.SyncRoot, target.SyncRoot);
 
-#if !NETCORE
             // test IsFixedSize
             Assert.IsFalse(target.IsFixedSize);
 
@@ -45,7 +44,7 @@ namespace Cassandra.Tests
 
             // test IsSynchronized
             Assert.IsFalse(target.IsSynchronized);
-#endif
+
             // test Add()
             var p2Index = target.Add(new CqlParameter("p2"));
             Assert.AreEqual(2, target.Count);

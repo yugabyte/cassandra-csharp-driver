@@ -1,4 +1,20 @@
-﻿namespace Cassandra.Mapping
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+namespace Cassandra.Mapping
 {
     /// <summary>
     /// The contract for synchronous write operations.
@@ -29,8 +45,7 @@
         /// <param name="queryOptions">Optional query options</param>
         /// <returns></returns>
         void Insert<T>(T poco, bool insertNulls, CqlQueryOptions queryOptions = null);
-
-
+        
         /// <summary>
         /// Inserts the specified POCO in Cassandra.
         /// </summary>
@@ -52,7 +67,7 @@
         /// from the database after the specified time.</param>
         /// <returns></returns>
         void Insert<T>(T poco, bool insertNulls, int? ttl, CqlQueryOptions queryOptions = null);
-
+        
         /// <summary>
         /// Updates the POCO specified in Cassandra.
         /// </summary>
@@ -75,7 +90,7 @@
         /// Deletes the specified POCO from Cassandra.
         /// </summary>
         void Delete<T>(T poco, CqlQueryOptions queryOptions = null);
-
+        
         /// <summary>
         /// Deletes from the table for the POCO type specified (T) using the CQL string and bind variable values specified.  Prepends "DELETE FROM tablname " to
         /// the CQL string you specify, getting the tablename appropriately from the POCO Type T.

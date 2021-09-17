@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -54,6 +54,11 @@ namespace Cassandra
         }
 
         /// <summary>
+        /// For testing purposes.
+        /// </summary>
+        internal string Username => _username;
+
+        /// <summary>
         /// Uses the supplied credentials and the SASL PLAIN mechanism to login to the server.
         /// </summary>
         /// <param name="host"> the Cassandra host with which we want to authenticate</param>
@@ -72,7 +77,7 @@ namespace Cassandra
         ///  authentication against Cassandra servers configured with
         ///  PasswordAuthenticator.
         /// </summary>
-        private class PlainTextAuthenticator : IAuthenticator
+        internal class PlainTextAuthenticator : IAuthenticator
         {
             private readonly byte[] _password;
             private readonly byte[] _username;

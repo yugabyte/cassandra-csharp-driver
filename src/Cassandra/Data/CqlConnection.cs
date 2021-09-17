@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -25,10 +25,7 @@ namespace Cassandra.Data
     /// Represents a CQL connection.
     /// </summary>
     /// <inheritdoc />
-    public class CqlConnection : DbConnection
-#if !NETCORE
-        , ICloneable 
-#endif
+    public class CqlConnection : DbConnection, ICloneable
     {
         private CassandraConnectionStringBuilder _connectionStringBuilder;
         private readonly static ConcurrentDictionary<string, Cluster> _clusters = new ConcurrentDictionary<string, Cluster>();
@@ -101,7 +98,7 @@ namespace Cassandra.Data
         {
             get
             {
-                return _connectionStringBuilder == null ? null : _connectionStringBuilder.ConnectionString;
+                return _connectionStringBuilder?.ConnectionString;
             }
             set
             {
@@ -129,12 +126,10 @@ namespace Cassandra.Data
         /// </summary>
         public override string Database
         {
-            get { return ManagedConnection == null ? null : ManagedConnection.Keyspace; }
+            get { return ManagedConnection?.Keyspace; }
         }
 
-#if !NETCORE
         protected override DbProviderFactory DbProviderFactory { get { return CqlProviderFactory.Instance; } }
-#endif
 
         /// <inheritdoc />
         public override void Open()
@@ -168,8 +163,7 @@ namespace Cassandra.Data
         /// <returns></returns>
         protected virtual Cluster CreateCluster(CassandraConnectionStringBuilder connectionStringBuilder)
         {
-            Cluster cluster;
-            if (!_clusters.TryGetValue(_connectionStringBuilder.ClusterName, out cluster))
+            if (!_clusters.TryGetValue(_connectionStringBuilder.ClusterName, out Cluster cluster))
             {
                 var builder = _connectionStringBuilder.MakeClusterBuilder();
                 OnBuildingCluster(builder);

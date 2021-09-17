@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,17 +16,24 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
+using Cassandra.Metrics.Internal;
+using Cassandra.SessionManagement;
 using Cassandra.Tasks;
 
 namespace Cassandra.Data.Linq
 {
     public abstract class Batch : Statement
     {
+        private readonly IMetricsManager _metricsManager;
+
         protected readonly ISession _session;
 
         protected BatchType _batchType;
         protected DateTimeOffset? _timestamp = null;
+
+        protected int QueryAbortTimeout { get; private set; }
 
         public abstract bool IsEmpty { get; }
 
@@ -37,10 +44,15 @@ namespace Cassandra.Data.Linq
 
         public QueryTrace QueryTrace { get; private set; }
 
+        /// <inheritdoc />
+        public override string Keyspace => null;
+
         internal Batch(ISession session, BatchType batchType)
         {
             _session = session;
+            _metricsManager = (session as IInternalSession)?.MetricsManager;
             _batchType = batchType;
+            QueryAbortTimeout = session.Cluster.Configuration.DefaultRequestOptions.QueryAbortTimeout;
         }
 
         public abstract void Append(CqlCommand cqlCommand);
@@ -56,7 +68,7 @@ namespace Cassandra.Data.Linq
             _timestamp = timestamp;
             return this;
         }
-
+        
         public Batch Append(IEnumerable<CqlCommand> cqlCommands)
         {
             foreach (var cmd in cqlCommands)
@@ -68,14 +80,26 @@ namespace Cassandra.Data.Linq
 
         public void Execute()
         {
-            EndExecute(BeginExecute(null, null));
+            Execute(Configuration.DefaultExecutionProfileName);
+        }
+        
+        public void Execute(string executionProfile)
+        {
+            WaitToCompleteWithMetrics(InternalExecuteAsync(executionProfile), QueryAbortTimeout);
         }
 
         protected abstract Task<RowSet> InternalExecuteAsync();
         
+        protected abstract Task<RowSet> InternalExecuteAsync(string executionProfile);
+        
         public Task ExecuteAsync()
         {
             return InternalExecuteAsync();
+        }
+        
+        public Task ExecuteAsync(string executionProfile)
+        {
+            return InternalExecuteAsync(executionProfile);
         }
 
         public IAsyncResult BeginExecute(AsyncCallback callback, object state)
@@ -100,6 +124,11 @@ namespace Cassandra.Data.Linq
                 default:
                     throw new ArgumentException();
             }
+        }
+
+        internal T WaitToCompleteWithMetrics<T>(Task<T> task, int timeout = Timeout.Infinite)
+        {
+            return TaskHelper.WaitToCompleteWithMetrics(_metricsManager, task, timeout);
         }
     }
 }

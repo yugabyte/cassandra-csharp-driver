@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2017 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,14 +19,18 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+
+using Cassandra.IntegrationTests.SimulacronAPI;
+using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement.Simulacron;
 using Cassandra.Tests;
+
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("short")]
-    public class SessionStateTests
+    [TestFixture, Category(TestCategory.Short)]
+    public class SessionStateTests : TestGlobals
     {
         private SimulacronCluster _testCluster;
 
@@ -35,31 +39,23 @@ namespace Cassandra.IntegrationTests.Core
         [OneTimeSetUp]
         public void OneTimeSetup()
         {
-            _testCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3"});
-            _testCluster.Prime(new
-            {
-                when = new {query = Query},
-                then = new
-                {
-                    result = "success",
-                    delay_in_ms = 20,
-                    rows = new[] {new {id = Guid.NewGuid()}},
-                    column_types = new {id = "uuid"}
-                }
-            });
+            _testCluster = SimulacronCluster.CreateNew(new SimulacronOptions { Nodes = "3" });
+            _testCluster.PrimeFluent(b =>
+                b.WhenQuery(Query)
+                 .ThenRowsSuccess(new[] { ("id", DataType.Uuid) }, rows => rows.WithRow(Guid.NewGuid())).WithDelayInMs(20));
         }
 
         [OneTimeTearDown]
         public void OneTimeTearDown()
         {
-            _testCluster.Remove().Wait();
+            _testCluster.RemoveAsync().Wait();
         }
 
         [Test]
         public async Task Session_GetState_Should_Return_A_Snapshot_Of_The_Pools_State()
         {
             var poolingOptions = PoolingOptions.Create().SetCoreConnectionsPerHost(HostDistance.Local, 2);
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(_testCluster.InitialContactPoint)
                                         .WithPoolingOptions(poolingOptions)
                                         .Build())
@@ -101,7 +97,7 @@ namespace Cassandra.IntegrationTests.Core
             ISession session;
             ISessionState state;
             ICollection<Host> hosts;
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(_testCluster.InitialContactPoint)
                                         .Build())
             {

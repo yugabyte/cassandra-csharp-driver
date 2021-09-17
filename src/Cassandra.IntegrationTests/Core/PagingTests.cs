@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
 using Cassandra.IntegrationTests.TestBase;
+using Cassandra.Tests;
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Core
@@ -26,7 +27,7 @@ namespace Cassandra.IntegrationTests.Core
     /// <summary>
     /// Validates that the Session.GetRequest (called within ExecuteAsync) method uses the paging size under different scenarios
     /// </summary>
-    [Category("short")]
+    [Category(TestCategory.Short), Category(TestCategory.RealCluster), Category(TestCategory.ServerApi)]
     public class PagingTests : SharedClusterTest
     {
         public override void OneTimeSetUp()
@@ -41,7 +42,7 @@ namespace Cassandra.IntegrationTests.Core
         {
             var pageSize = 10;
             var queryOptions = new QueryOptions().SetPageSize(pageSize);
-            var builder = new Builder().WithQueryOptions(queryOptions).WithDefaultKeyspace(KeyspaceName);
+            var builder = ClusterBuilder().WithQueryOptions(queryOptions).WithDefaultKeyspace(KeyspaceName);
             builder.AddContactPoint(TestCluster.InitialContactPoint);
 
             const int totalRowLength = 1003;
@@ -122,6 +123,59 @@ namespace Cassandra.IntegrationTests.Core
 
             var allTheRowsPaged = rsWithPaging.ToList();
             Assert.AreEqual(1, allTheRowsPaged.Count);
+        }
+
+        [Test]
+        [TestCassandraVersion(4, 0)]
+        public void Should_PagingOnBoundStatement_When_NewResultMetadataIsSet()
+        {
+            if (Session.Cluster.Metadata.ControlConnection.Serializer.CurrentProtocolVersion < ProtocolVersion.V5)
+            {
+                Assert.Ignore("This test requires protocol v5+");
+                return;
+            }
+
+            var pageSize = 10;
+            var totalRowLength = 25;
+            var tableName = CreateSimpleTableAndInsert(totalRowLength);
+
+            var statementToBeBound = "SELECT * from " + tableName;
+            var ps = Session.Prepare(statementToBeBound);
+
+            var allRows = Session.Execute(ps.Bind()).ToList();
+            var previousResultMetadata = ps.ResultMetadata;
+            Assert.AreEqual(totalRowLength, allRows.Count);
+            Assert.IsTrue(allRows.All(r => !r.ContainsColumn("new_column")));
+            Assert.AreEqual(2, previousResultMetadata.RowSetMetadata.Columns.Length);
+
+            var boundStatementManualPaging = ps.Bind().SetPageSize(pageSize).SetAutoPage(false);
+            var rs = Session.Execute(boundStatementManualPaging);
+            var firstPage = rs.ToList();
+
+            Session.Execute($"ALTER TABLE {tableName} ADD (new_column text)");
+            Assert.AreSame(previousResultMetadata, ps.ResultMetadata);
+            Assert.AreEqual(previousResultMetadata.ResultMetadataId, ps.ResultMetadata.ResultMetadataId);
+            Assert.AreEqual(2, ps.ResultMetadata.RowSetMetadata.Columns.Length);
+
+            rs = Session.Execute(boundStatementManualPaging.SetPagingState(rs.PagingState));
+            var secondPage = rs.ToList();
+            Assert.AreNotSame(previousResultMetadata, ps.ResultMetadata);
+            Assert.AreNotEqual(previousResultMetadata.ResultMetadataId, ps.ResultMetadata.ResultMetadataId);
+            Assert.AreEqual(3, ps.ResultMetadata.RowSetMetadata.Columns.Length);
+            
+            rs = Session.Execute(boundStatementManualPaging.SetPagingState(rs.PagingState));
+            var thirdPage = rs.ToList();
+            
+            var allRowsAfterAlter = Session.Execute(ps.Bind()).ToList();
+            Assert.AreEqual(totalRowLength, allRowsAfterAlter.Count);
+
+            Assert.AreEqual(pageSize, firstPage.Count);
+            Assert.AreEqual(pageSize, secondPage.Count);
+            Assert.AreEqual(totalRowLength-(pageSize*2), thirdPage.Count);
+
+            Assert.IsTrue(firstPage.All(r => !r.ContainsColumn("new_column")));
+            Assert.IsTrue(secondPage.All(r => r.ContainsColumn("new_column") && r.GetValue<string>("new_column") == null));
+            Assert.IsTrue(allRowsAfterAlter.All(r => r.ContainsColumn("new_column") && r.GetValue<string>("new_column") == null));
         }
 
         [Test]

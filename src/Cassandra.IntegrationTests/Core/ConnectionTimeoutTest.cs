@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,16 +14,15 @@
 //   limitations under the License.
 //
 
-using ﻿Cassandra.IntegrationTests.TestBase;
 using NUnit.Framework;
-using System;
 using System.Diagnostics;
-using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Cassandra.IntegrationTests.TestBase;
+using Cassandra.Tests;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("short")]
+    [TestFixture, Category(TestCategory.Short)]
     public class ConnectionTimeoutTest : TestGlobals
     {
         [Test]
@@ -36,7 +35,7 @@ namespace Cassandra.IntegrationTests.Core
             var sw = Stopwatch.StartNew();
             try
             {
-                var builder = new Builder().WithDefaultKeyspace("system")
+                var builder = ClusterBuilder().WithDefaultKeyspace("system")
                                            .AddContactPoints("1.1.1.1") // IP address that drops (not rejects !) the inbound connection
                                            .WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(700));
                 var cluster = builder.Build();

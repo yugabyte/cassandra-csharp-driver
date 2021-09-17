@@ -91,6 +91,7 @@ namespace Cassandra.Serialization
             {"time", ColumnTypeCode.Time},
             {"smallint", ColumnTypeCode.SmallInt},
             {"tinyint", ColumnTypeCode.TinyInt},
+            {"duration", ColumnTypeCode.Duration},
             {"timestamp", ColumnTypeCode.Timestamp},
             {"bigint", ColumnTypeCode.Bigint},
             {"decimal", ColumnTypeCode.Decimal},
@@ -139,12 +140,11 @@ namespace Cassandra.Serialization
             //Quick check if its a single type
             if (length <= SingleFqTypeNamesLength)
             {
-                ColumnTypeCode typeCode;
                 if (startIndex > 0)
                 {
                     typeName = typeName.Substring(startIndex, length);
                 }
-                if (SingleFqTypeNames.TryGetValue(typeName, out typeCode))
+                if (SingleFqTypeNames.TryGetValue(typeName, out ColumnTypeCode typeCode))
                 {
                     dataType.TypeCode = typeCode;
                     return dataType;
@@ -395,8 +395,7 @@ namespace Cassandra.Serialization
             {
                 typeName = typeName.Substring(startIndex, length);
             }
-            ColumnTypeCode typeCode;
-            if (SingleCqlNames.TryGetValue(typeName, out typeCode))
+            if (SingleCqlNames.TryGetValue(typeName, out ColumnTypeCode typeCode))
             {
                 dataType.TypeCode = typeCode;
                 return TaskHelper.ToTask(dataType);
@@ -404,12 +403,8 @@ namespace Cassandra.Serialization
             typeName = typeName.Replace("\"", "");
             return udtResolver(keyspace, typeName).ContinueSync(typeInfo =>
             {
-                if (typeInfo == null)
-                {
-                    throw GetTypeException(typeName);
-                }
                 dataType.TypeCode = ColumnTypeCode.Udt;
-                dataType.TypeInfo = typeInfo;
+                dataType.TypeInfo = typeInfo ?? throw GetTypeException(typeName);
                 return dataType;
             });
         }

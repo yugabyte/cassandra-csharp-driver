@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ using System.Net;
 namespace Cassandra
 {
     /// <summary>
-    ///     Translates IP addresses received from Cassandra nodes into locally queriable addresses.
+    ///     Translates IP addresses received from Cassandra nodes into locally queryable addresses.
     /// </summary>
     /// <remarks>
     ///     The driver auto-detect new Cassandra nodes added to the cluster through server side
@@ -52,7 +52,7 @@ namespace Cassandra
         /// <returns>
         ///     the address the driver should actually use to connect to the node. If the return is
         ///     <c>null</c>, then address will be used by the driver (it is thus equivalent to
-        ///     returing address directly).
+        ///     returning address directly).
         /// </returns>
         IPEndPoint Translate(IPEndPoint address);
     }

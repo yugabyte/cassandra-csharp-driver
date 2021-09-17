@@ -47,13 +47,13 @@ namespace Cassandra.YugaByte.Tests
             TestPrimitive("time", i => new LocalTime(i * 57809));
         }
 
-        [Test]
+        //[Test]
         public void PrimaryKeyDate()
         {
             TestPrimitive("date", i => new LocalDate(1900 * i, 1 + i % 12, 1 + i % 28));
         }
 
-        [Test]
+       [Test]
         public void PrimaryKeyInet()
         {
             TestPrimitive("inet", i => IPAddress.Parse(string.Format("{0}.1.{0}.2", i)));
@@ -201,7 +201,7 @@ namespace Cassandra.YugaByte.Tests
             TestToken(typeof(bool));
         }
 
-        [Test]
+        //[Test]
         public void TokenFrozen()
         {
             _session.Execute("DROP TYPE IF EXISTS udt");

@@ -1,7 +1,20 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 
 namespace Cassandra
 {
@@ -10,6 +23,8 @@ namespace Cassandra
     /// </summary>
     public class FunctionMetadata
     {
+        private static readonly string[] EmptyStringArray = new string[0];
+
         /// <summary>
         /// Name of the CQL function.
         /// </summary>
@@ -54,6 +69,30 @@ namespace Cassandra
         /// Type of the return value.
         /// </summary>
         public ColumnDesc ReturnType { get; internal set; }
+
+        /// <summary>
+        /// Indicates whether or not this function is deterministic. This means that given a particular input,
+        /// the function will always produce the same output.
+        /// </summary>
+        public bool Deterministic { get; internal set; }
+
+        /// <summary>
+        /// Indicates whether or not this function is monotonic on all of its arguments. This means that it is
+        /// either entirely non-increasing or non-decreasing. Even if the function is not monotonic on
+        /// all of its arguments, it's possible to specify that it is monotonic on one of its arguments, meaning
+        /// that partial applications of the function over that argument will be monotonic.
+        /// </summary>
+        /// <remarks>Monotonicity is required to use the function in a GROUP BY clause.</remarks>
+        public bool Monotonic { get; internal set; }
+
+        /// <summary>
+        /// The argument names that the function is monotonic on.
+        /// <para>
+        /// If <see cref="Monotonic"/> is true, this will return all argument names.
+        /// Otherwise, this will return either one argument or an empty collection.
+        /// </para>
+        /// </summary>
+        public ICollection<string> MonotonicOn { get; internal set; } = EmptyStringArray;
 
         /// <summary>
         /// Creates a new instance of Function metadata.

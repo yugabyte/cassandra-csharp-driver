@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -18,6 +18,9 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
+using Cassandra.Connections;
+using Cassandra.Connections.Control;
+using Cassandra.SessionManagement;
 
 namespace Cassandra
 {
@@ -28,7 +31,8 @@ namespace Cassandra
     {
         private static readonly Logger Logger = new Logger(typeof(Host));
         private long _isUpNow = 1;
-        private int _distance = (int) HostDistance.Ignored;
+        private int _distance = (int)HostDistance.Ignored;
+        private static readonly IReadOnlyCollection<string> WorkloadsDefault = new string[0];
 
         /// <summary>
         /// Event that gets raised when the host is set as DOWN (not available) by the driver, after being UP.
@@ -74,6 +78,11 @@ namespace Cassandra
         public IPEndPoint Address { get; }
 
         /// <summary>
+        /// Gets the node's host id.
+        /// </summary>
+        public Guid HostId { get; private set; }
+
+        /// <summary>
         /// Tokens assigned to the host
         /// </summary>
         internal IEnumerable<string> Tokens { get; private set; }
@@ -103,17 +112,45 @@ namespace Cassandra
         public Version CassandraVersion { get; private set; }
 
         /// <summary>
+        /// Gets the DSE Workloads the host is running.
+        /// <para>
+        ///   This is based on the "workload" or "workloads" columns in <c>system.local</c> and <c>system.peers</c>.
+        /// </para>
+        /// <para>
+        ///   Workload labels may vary depending on the DSE version in use; e.g. DSE 5.1 may report two distinct
+        ///   workloads: <c>Search</c> and <c>Analytics</c>, while DSE 5.0 would report a single
+        ///   <c>SearchAnalytics</c> workload instead. The driver simply returns the workload labels as reported by
+        ///   DSE, without any form of pre-processing.
+        /// </para>
+        /// <para>When the information is unavailable, this property returns an empty collection.</para>
+        /// </summary>
+        /// <remarks>Collection can be considered as immutable.</remarks>
+        public IReadOnlyCollection<string> Workloads { get; private set; }
+
+        /// <summary>
+        /// Gets the DSE version the server is running.
+        /// This property might be null when using Apache Cassandra or legacy DSE server versions.
+        /// </summary>
+        public Version DseVersion { get; private set; }
+        
+        /// <summary>
+        /// ContactPoint from which this endpoint was resolved. It is null if it was parsed from system tables.
+        /// </summary>
+        internal IContactPoint ContactPoint { get; }
+
+        /// <summary>
         /// Creates a new instance of <see cref="Host"/>.
         /// </summary>
         // ReSharper disable once UnusedParameter.Local : Part of the public API
-        public Host(IPEndPoint address, IReconnectionPolicy reconnectionPolicy) : this(address)
+        public Host(IPEndPoint address, IReconnectionPolicy reconnectionPolicy) : this(address, contactPoint: null)
         {
-
         }
-        
-        internal Host(IPEndPoint address)
+
+        internal Host(IPEndPoint address, IContactPoint contactPoint)
         {
             Address = address ?? throw new ArgumentNullException(nameof(address));
+            Workloads = WorkloadsDefault;
+            ContactPoint = contactPoint;
         }
 
         /// <summary>
@@ -128,10 +165,7 @@ namespace Cassandra
                 return false;
             }
             Logger.Warning("Host {0} considered as DOWN.", Address);
-            if (Down != null)
-            {
-                Down(this);
-            }
+            Down?.Invoke(this);
             return true;
         }
 
@@ -146,10 +180,7 @@ namespace Cassandra
                 return false;
             }
             Logger.Info("Host {0} is now UP", Address);
-            if (Up != null)
-            {
-                Up(this);
-            }
+            Up?.Invoke(this);
             return true;
         }
 
@@ -157,10 +188,7 @@ namespace Cassandra
         {
             Logger.Info("Decommissioning node {0}", Address);
             Interlocked.Exchange(ref _isUpNow, 0);
-            if (Remove != null)
-            {
-                Remove();
-            }
+            Remove?.Invoke();
         }
 
         /// <summary>
@@ -178,6 +206,51 @@ namespace Cassandra
                 if (releaseVersion != null)
                 {
                     CassandraVersion = Version.Parse(releaseVersion.Split('-')[0]);
+                }
+            }
+
+            if (row.ContainsColumn("host_id"))
+            {
+                var nullableHostId = row.GetValue<Guid?>("host_id");
+                if (nullableHostId.HasValue)
+                {
+                    HostId = nullableHostId.Value;
+                }
+            }
+
+            SetDseInfo(row);
+        }
+
+        private void SetDseInfo(IRow row)
+        {
+            if (row.ContainsColumn("workloads"))
+            {
+                Workloads = row.GetValue<string[]>("workloads");
+            }
+            else if (row.ContainsColumn("workload") && row.GetValue<string>("workload") != null)
+            {
+                Workloads = new[] { row.GetValue<string>("workload") };
+            }
+            else
+            {
+                Workloads = WorkloadsDefault;
+            }
+
+            if (row.ContainsColumn("dse_version"))
+            {
+                var dseVersion = row.GetValue<string>("dse_version");
+                if (!string.IsNullOrEmpty(dseVersion))
+                {
+                    DseVersion = Version.Parse(dseVersion.Split('-')[0]);
+                }
+            }
+
+            if (row.ContainsColumn("host_id"))
+            {
+                var nullableHostId = row.GetValue<Guid?>("host_id");
+                if (nullableHostId.HasValue)
+                {
+                    HostId = nullableHostId.Value;
                 }
             }
         }
@@ -204,7 +277,7 @@ namespace Cassandra
             if (ReferenceEquals(null, obj)) return false;
             if (ReferenceEquals(this, obj)) return true;
             if (obj.GetType() != this.GetType()) return false;
-            return Equals((Host) obj);
+            return Equals((Host)obj);
         }
 
         /// <summary>
@@ -212,11 +285,20 @@ namespace Cassandra
         /// </summary>
         internal void SetDistance(HostDistance distance)
         {
-            var previousDistance = (HostDistance) Interlocked.Exchange(ref _distance, (int)distance);
+            var previousDistance = (HostDistance)Interlocked.Exchange(ref _distance, (int)distance);
             if (previousDistance != distance && DistanceChanged != null)
             {
                 DistanceChanged(previousDistance, distance);
             }
+        }
+
+        /// <summary>
+        /// Testing purposes only. Use <see cref="IInternalCluster.RetrieveAndSetDistance"/> to retrieve distance in a safer way.
+        /// </summary>
+        /// <returns></returns>
+        internal HostDistance GetDistanceUnsafe()
+        {
+            return (HostDistance)Interlocked.CompareExchange(ref _distance, 0, 0);
         }
     }
 }

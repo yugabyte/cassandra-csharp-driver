@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -17,17 +17,17 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Linq;
-using System.Threading.Tasks;
 using Cassandra.IntegrationTests.TestBase;
-using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [Category("short")]
+    [Category(TestCategory.Short), Category(TestCategory.RealCluster), Category(TestCategory.ServerApi)]
     public class CollectionsTests : SharedClusterTest
     {
         private const string AllTypesTableName = "all_types_table_collections";
@@ -35,14 +35,14 @@ namespace Cassandra.IntegrationTests.Core
         public override void OneTimeSetUp()
         {
             base.OneTimeSetUp();
-            Session.Execute(String.Format(TestUtils.CreateTableAllTypes, AllTypesTableName));
+            Session.Execute(string.Format(TestUtils.CreateTableAllTypes, AllTypesTableName));
         }
 
         [Test]
         public void DecodeCollectionTest()
         {
             var id = "c9850ed4-c139-4b75-affe-098649f9de93";
-            var insertQuery = String.Format("INSERT INTO {0} (id, map_sample, list_sample, set_sample) VALUES ({1}, {2}, {3}, {4})", 
+            var insertQuery = string.Format("INSERT INTO {0} (id, map_sample, list_sample, set_sample) VALUES ({1}, {2}, {3}, {4})", 
                 AllTypesTableName, 
                 id, 
                 "{'fruit': 'apple', 'band': 'Beatles'}", 
@@ -50,7 +50,7 @@ namespace Cassandra.IntegrationTests.Core
                 "{'set_1one', 'set_2two'}");
 
             Session.Execute(insertQuery);
-            var row = Session.Execute(String.Format("SELECT * FROM {0} WHERE id = {1}", AllTypesTableName, id)).First();
+            var row = Session.Execute(string.Format("SELECT * FROM {0} WHERE id = {1}", AllTypesTableName, id)).First();
             var expectedMap = new SortedDictionary<string, string> { { "fruit", "apple" }, { "band", "Beatles" } };
             var expectedList = new List<string> { "one", "two" };
             var expectedSet = new List<string> { "set_1one", "set_2two" };
@@ -63,7 +63,7 @@ namespace Cassandra.IntegrationTests.Core
         [TestCassandraVersion(2, 0)]
         public void TimeUuid_Collection_Insert_Get_Test()
         {
-            var session = GetNewSession(KeyspaceName);
+            var session = GetNewTemporarySession(KeyspaceName);
             session.Execute("CREATE TABLE tbl_timeuuid_collections (id int PRIMARY KEY, set_value set<timeuuid>, list_value list<timeuuid>)");
             const string selectQuery = "SELECT * FROM tbl_timeuuid_collections WHERE id = ?";
             const string insertQuery = "INSERT INTO tbl_timeuuid_collections (id, set_value, list_value) VALUES (?, ?, ?)";
@@ -83,7 +83,7 @@ namespace Cassandra.IntegrationTests.Core
         public void Encode_Map_With_NullValue_Should_Throw()
         {
             var id = Guid.NewGuid();
-            var localSession = GetNewSession(KeyspaceName);
+            var localSession = GetNewTemporarySession(KeyspaceName);
             var insertQuery = localSession.Prepare(string.Format("INSERT INTO {0} (id, map_sample) VALUES (?, ?)",
                 AllTypesTableName));
 
@@ -96,12 +96,71 @@ namespace Cassandra.IntegrationTests.Core
         public void Encode_List_With_NullValue_Should_Throw()
         {
             var id = Guid.NewGuid();
-            var localSession = GetNewSession(KeyspaceName);
+            var localSession = GetNewTemporarySession(KeyspaceName);
             var insertQuery = localSession.Prepare(string.Format("INSERT INTO {0} (id, list_sample) VALUES (?, ?)",
                 AllTypesTableName));
             var map = new List<string> { "fruit", null };
             var stmt = insertQuery.Bind(id, map);
             Assert.Throws<ArgumentNullException>(() => localSession.Execute(stmt));
+        }
+
+        [Test]
+        public void Decode_NestedList_And_Different_CollectionTypes_Should_Return_Correct_Results()
+        {
+            var id = Guid.NewGuid();
+            var localSession = GetNewTemporarySession(KeyspaceName);
+            var tableName = TestUtils.GetUniqueTableName().ToLowerInvariant();
+            var typeName = TestUtils.GetUniqueTableName().ToLowerInvariant();
+            localSession.Execute($"CREATE TYPE {typeName} (id uuid)");
+            localSession.Execute($"CREATE TABLE {tableName} (id uuid PRIMARY KEY, nested_list list<frozen<list<list<int>>>>, list list<int>)");
+            var insertQuery = localSession.Prepare($"INSERT INTO {tableName} (id, nested_list, list) VALUES (?, ?, ?)");
+            var list = new List<int> { 0, 1 };
+            var nestedList = new List<List<List<int>>> { new List<List<int>> { new List<int> { 3, 4 } } };
+            var stmt = insertQuery.Bind(id, nestedList, list);
+            localSession.Execute(stmt);
+            var rs = localSession.Execute(new SimpleStatement($"SELECT * FROM {tableName} WHERE id = ?", id)).ToList().Single();
+            CollectionAssert.AreEqual(nestedList.Single(), rs.GetValue<IEnumerable<IEnumerable<IEnumerable<int>>>>("nested_list").Single());
+            CollectionAssert.AreEqual(nestedList.Single(), rs.GetValue<IReadOnlyCollection<ICollection<IList<int>>>>("nested_list").Single());
+            CollectionAssert.AreEqual(list, rs.GetValue<IEnumerable<long>>("list"));
+            CollectionAssert.AreEqual(list, rs.GetValue<IEnumerable<int>>("list"));
+            CollectionAssert.AreEqual(list, rs.GetValue<IReadOnlyList<int>>("list"));
+            CollectionAssert.AreEqual(list, rs.GetValue<int[]>("list"));
+        }
+
+        [Test]
+        [TestDseVersion(6, 7)] // https://issues.apache.org/jira/browse/CASSANDRA-8877
+        public void Decode_List_With_NullValue_Should_Return_Correct_Results()
+        {
+            var id = Guid.NewGuid();
+            var id2 = Guid.NewGuid();
+            var ttlInsert = 86400;
+            var localSession = GetNewTemporarySession(KeyspaceName);
+            var insertQuery = localSession.Prepare(string.Format("INSERT INTO {0} (id, map_sample, set_sample, list_sample) VALUES (?, ?, ?, ?) USING TTL ?",
+                AllTypesTableName));
+            var list = new List<string> { "apple", "queen" };
+            var set = new List<string> { "fruit", "band" };
+            var map = new Dictionary<string,string> { { "fruit", "apple" }, { "band", "queen" } };
+            var stmt = insertQuery.Bind(id, map, set, list, ttlInsert);
+            localSession.Execute(stmt);
+            insertQuery = localSession.Prepare(string.Format("INSERT INTO {0} (id, map_sample, set_sample, list_sample) VALUES (?, ?, ?, ?)",
+                AllTypesTableName));
+            stmt = insertQuery.Bind(id2, map, set, list);
+            localSession.Execute(stmt);
+            
+            var rowSet = localSession.Execute(
+                new SimpleStatement($"select ttl(list_sample), ttl(map_sample), ttl(set_sample) from {AllTypesTableName} where id=?",id2)).ToList();
+            
+            CollectionAssert.AreEqual(new int? [] { null, null }, rowSet.Single().GetValue<int?[]>(0));
+            CollectionAssert.AreEqual(new int? [] { null, null }, rowSet.Single().GetValue<IEnumerable<int?>>(1));
+            CollectionAssert.AreEqual(new int? [] { null, null }, rowSet.Single().GetValue<IEnumerable<int?>>(2));
+
+            rowSet = localSession.Execute(
+                new SimpleStatement($"select writetime(list_sample), writetime(map_sample), ttl(list_sample), ttl(map_sample), ttl(set_sample) from {AllTypesTableName} where id=?",id)).ToList();
+            Assert.IsTrue(rowSet.Single().GetValue<long?[]>(0).All(i => i > 0) && rowSet.Single().GetValue<long?[]>(0).Length == 2);
+            Assert.IsTrue(rowSet.Single().GetValue<long?[]>(1).All(i => i > 0) && rowSet.Single().GetValue<long?[]>(1).Length == 2);
+            Assert.IsTrue(rowSet.Single().GetValue<int?[]>(2).All(i => i > 0) && rowSet.Single().GetValue<int?[]>(2).Length == 2);
+            Assert.IsTrue(rowSet.Single().GetValue<IEnumerable<int?>>(3).All(ttl => ttl <= ttlInsert && ttl >= (ttlInsert - 100)) && rowSet.Single().GetValue<IEnumerable<int?>>(3).Count() == 2);
+            Assert.IsTrue(rowSet.Single().GetValue<IEnumerable<int?>>(4).All(ttl => ttl <= ttlInsert && ttl >= (ttlInsert - 100)) && rowSet.Single().GetValue<IEnumerable<int?>>(4).Count() == 2);
         }
 
         public void CheckingOrderOfCollection(string CassandraCollectionType, Type TypeOfDataToBeInputed, Type TypeOfKeyForMap = null,string pendingMode = "")
@@ -199,6 +258,10 @@ namespace Cassandra.IntegrationTests.Core
             object randomValue = Randomm.RandomVal(typeOfDataToBeInputed);
             if (typeOfDataToBeInputed == typeof (string))
                 randomValue = "'" + randomValue.ToString().Replace("'", "''") + "'";
+            else if (typeOfDataToBeInputed == typeof(double))
+            {
+                randomValue = ((double) randomValue).ToString(CultureInfo.InvariantCulture);
+            }
 
             string randomKeyValue = string.Empty;
 
@@ -215,6 +278,8 @@ namespace Cassandra.IntegrationTests.Core
                                              .Invoke(Randomm.RandomVal(typeof (DateTimeOffset)), new object[1] {"yyyy-MM-dd H:mm:sszz00"}) + "'");
                 else if (typeOfKeyForMap == typeof (string))
                     randomKeyValue = "'" + Randomm.RandomVal(typeOfDataToBeInputed).ToString().Replace("'", "''") + "'";
+                else if (typeOfKeyForMap == typeof (double))
+                    randomKeyValue = ((double)Randomm.RandomVal(typeOfDataToBeInputed)).ToString(CultureInfo.InvariantCulture);
                 else
                     randomKeyValue = Randomm.RandomVal(typeOfDataToBeInputed).ToString();
             }
@@ -249,6 +314,10 @@ namespace Cassandra.IntegrationTests.Core
                 object val = rval;
                 if (typeOfDataToBeInputed == typeof (string))
                     val = "'" + val.ToString().Replace("'", "''") + "'";
+                else if (typeOfDataToBeInputed == typeof(double))
+                {
+                    val = ((double) val).ToString(CultureInfo.InvariantCulture);
+                }
 
                 longQ.AppendFormat(@"UPDATE {0} SET some_collection = some_collection + {1} WHERE tweet_id = {2};"
                                    , tableName,

@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2016 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -67,11 +67,11 @@ namespace Cassandra.Serialization
             for (var i = 0; i < count; i++)
             {
                 var keyLength = DecodeCollectionLength((ProtocolVersion)protocolVersion, buffer, ref offset);
-                var key = DeserializeChild(buffer, offset, keyLength, mapInfo.KeyTypeCode, mapInfo.KeyTypeInfo);
+                var key = DeserializeChild(protocolVersion, buffer, offset, keyLength, mapInfo.KeyTypeCode, mapInfo.KeyTypeInfo);
                 offset += keyLength;
 
                 var valueLength = DecodeCollectionLength((ProtocolVersion)protocolVersion, buffer, ref offset);
-                var value = DeserializeChild(buffer, offset, valueLength, mapInfo.ValueTypeCode, mapInfo.ValueTypeInfo);
+                var value = DeserializeChild(protocolVersion, buffer, offset, valueLength, mapInfo.ValueTypeCode, mapInfo.ValueTypeInfo);
                 offset += valueLength;
 
                 result.Add(key, value);
@@ -84,6 +84,15 @@ namespace Cassandra.Serialization
             var mapTypeInfo = (MapColumnInfo)typeInfo;
             var keyType = GetClrType(mapTypeInfo.KeyTypeCode, mapTypeInfo.KeyTypeInfo);
             var valueType = GetClrType(mapTypeInfo.ValueTypeCode, mapTypeInfo.ValueTypeInfo);
+            var openType = typeof(IDictionary<,>);
+            return openType.MakeGenericType(keyType, valueType);
+        }
+
+        internal Type GetClrTypeForGraph(IColumnInfo typeInfo)
+        {
+            var mapTypeInfo = (MapColumnInfo)typeInfo;
+            var keyType = GetClrTypeForGraph(mapTypeInfo.KeyTypeCode, mapTypeInfo.KeyTypeInfo);
+            var valueType = GetClrTypeForGraph(mapTypeInfo.ValueTypeCode, mapTypeInfo.ValueTypeInfo);
             var openType = typeof(IDictionary<,>);
             return openType.MakeGenericType(keyType, valueType);
         }
@@ -110,7 +119,7 @@ namespace Cassandra.Serialization
 
         public int AddItem(LinkedList<byte[]> bufferList, ushort protocolVersion, object item)
         {
-            var keyBuffer = SerializeChild(item);
+            var keyBuffer = SerializeChild(protocolVersion, item);
             var keyLengthBuffer = EncodeCollectionLength(protocolVersion, keyBuffer.Length);
             bufferList.AddLast(keyLengthBuffer);
             bufferList.AddLast(keyBuffer);

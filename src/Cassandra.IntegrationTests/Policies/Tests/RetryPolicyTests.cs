@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,12 +19,13 @@ using System.Threading;
 using Cassandra.IntegrationTests.Policies.Util;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 #pragma warning disable 618
 
 namespace Cassandra.IntegrationTests.Policies.Tests
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class RetryPolicyTests : TestGlobals
     {
 
@@ -34,7 +35,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         [Test]
         public void RetryPolicy_DowngradingConsistency()
         {
-            Builder builder = Cluster.Builder().WithRetryPolicy(DowngradingConsistencyRetryPolicy.Instance);
+            Builder builder = ClusterBuilder().WithRetryPolicy(DowngradingConsistencyRetryPolicy.Instance);
             DowngradingConsistencyRetryPolicyTest(builder);
         }
 
@@ -46,7 +47,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         [Test]
         public void LoggingRetryPolicy_DowngradingConsistency()
         {
-            Builder builder = Cluster.Builder().WithRetryPolicy(new LoggingRetryPolicy(DowngradingConsistencyRetryPolicy.Instance));
+            Builder builder = ClusterBuilder().WithRetryPolicy(new LoggingRetryPolicy(DowngradingConsistencyRetryPolicy.Instance));
             DowngradingConsistencyRetryPolicyTest(builder);
         }
 
@@ -92,7 +93,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         {
 
             ITestCluster testCluster = TestClusterManager.GetNonShareableTestCluster(2);
-            testCluster.Builder = Cluster.Builder()
+            testCluster.Builder = ClusterBuilder()
                                          .WithRetryPolicy(new LoggingRetryPolicy(AlwaysIgnoreRetryPolicy.Instance))
                                          .AddContactPoint(testCluster.ClusterIpPrefix + "1")
                                          .AddContactPoint(testCluster.ClusterIpPrefix + "2");
@@ -109,7 +110,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         public void AlwaysRetryRetryPolicyTest()
         {
             ITestCluster testCluster = TestClusterManager.GetNonShareableTestCluster(2);
-            testCluster.Builder = Cluster.Builder()
+            testCluster.Builder = ClusterBuilder()
                                          .WithRetryPolicy(new LoggingRetryPolicy(AlwaysRetryRetryPolicy.Instance))
                                          .AddContactPoint(testCluster.ClusterIpPrefix + "1")
                                          .AddContactPoint(testCluster.ClusterIpPrefix + "2");
@@ -140,7 +141,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         {
             ITestCluster testCluster = TestClusterManager.GetNonShareableTestCluster(2);
             var socketOptions = new SocketOptions().SetReadTimeoutMillis(2000);
-            testCluster.Builder = Cluster.Builder()
+            testCluster.Builder = ClusterBuilder()
                                          .WithRetryPolicy(new LoggingRetryPolicy(TryNextHostRetryPolicy.Instance))
                                          .AddContactPoint(testCluster.ClusterIpPrefix + "1")
                                          .AddContactPoint(testCluster.ClusterIpPrefix + "2")

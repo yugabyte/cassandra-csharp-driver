@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2016 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -45,15 +45,13 @@ namespace Cassandra.Serialization
 
         protected internal virtual UdtMap GetUdtMap(string name)
         {
-            UdtMap map;
-            _udtMapsByName.TryGetValue(name, out map);
+            _udtMapsByName.TryGetValue(name, out UdtMap map);
             return map;
         }
 
         protected internal virtual UdtMap GetUdtMap(Type type)
         {
-            UdtMap map;
-            _udtMapsByClrType.TryGetValue(type, out map);
+            _udtMapsByClrType.TryGetValue(type, out UdtMap map);
             return map;
         }
 
@@ -80,7 +78,7 @@ namespace Cassandra.Serialization
                 {
                     continue;
                 }
-                valuesList[i] = DeserializeChild(buffer, offset, itemLength, field.TypeCode, field.TypeInfo);
+                valuesList[i] = DeserializeChild(protocolVersion, buffer, offset, itemLength, field.TypeCode, field.TypeInfo);
                 offset += itemLength;
             }
             return map.ToObject(valuesList);
@@ -114,7 +112,7 @@ namespace Cassandra.Serialization
                                                fieldValue);
                     }
                 }
-                var itemBuffer = SerializeChild(fieldValue);
+                var itemBuffer = SerializeChild(protocolVersion, fieldValue);
                 bufferList.Add(itemBuffer);
                 if (fieldValue != null)
                 {

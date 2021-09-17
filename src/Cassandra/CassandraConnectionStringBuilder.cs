@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ namespace Cassandra
         public Builder ApplyToBuilder(Builder builder)
         {
             builder.AddContactPoints(ContactPoints).WithPort(Port).WithDefaultKeyspace(DefaultKeyspace);
-            if (!String.IsNullOrEmpty(Username) && !String.IsNullOrEmpty(Password))
+            if (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(Password))
             {
                 //Make sure the credentials are not null
                 builder.WithCredentials(Username, Password);

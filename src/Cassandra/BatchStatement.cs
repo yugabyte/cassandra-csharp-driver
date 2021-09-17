@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ namespace Cassandra
         private BatchType _batchType = BatchType.Logged;
         private RoutingKey _routingKey;
         private object[] _routingValues;
+        private string _keyspace;
 
         /// <summary>
         /// Gets the batch type
@@ -72,8 +73,8 @@ namespace Cassandra
                 var serializer = Serializer;
                 if (serializer == null)
                 {
-                    serializer = Serializer.Default;
-                    Logger.Warning(
+                    serializer = SerializerManager.Default.GetCurrentSerializer();
+                    BatchStatement.Logger.Warning(
                         "Calculating routing key before executing is not supported for BatchStatement instances, " +
                         "using default serializer.");
                 }
@@ -87,24 +88,51 @@ namespace Cassandra
                             .ToArray());
                 }
 
-                var firstStatement = _queries.FirstOrDefault();
-                if (firstStatement == null)
-                {
-                    return null;
-                }
-
-                if (firstStatement is SimpleStatement simpleStatement)
-                {
-                    // Serializer must be set before obtaining the routing key for SimpleStatement instances.
-                    // For BoundStatement instances, it isn't needed.
-                    simpleStatement.Serializer = serializer;
-                }
-
-                return firstStatement.RoutingKey;
+                return GetRoutingStatement(serializer)?.RoutingKey;
             }
         }
 
-        internal Serializer Serializer { get; set; }
+        public override string Keyspace
+        {
+            get
+            {
+                if (_keyspace != null)
+                {
+                    return _keyspace;
+                }
+
+                var serializer = Serializer;
+                if (serializer == null)
+                {
+                    serializer = SerializerManager.Default.GetCurrentSerializer();
+                    BatchStatement.Logger.Warning(
+                        "Calculating keyspace key before executing is not supported for BatchStatement instances, " +
+                        "using default serializer.");
+                }
+
+                return GetRoutingStatement(serializer)?.Keyspace;
+            }
+        }
+
+        private IStatement GetRoutingStatement(ISerializer serializer)
+        {
+            var firstStatement = _queries.FirstOrDefault();
+            if (firstStatement == null)
+            {
+                return null;
+            }
+
+            if (firstStatement is SimpleStatement simpleStatement)
+            {
+                // Serializer must be set before obtaining the routing key for SimpleStatement instances.
+                // For BoundStatement instances, it isn't needed.
+                simpleStatement.Serializer = serializer;
+            }
+
+            return firstStatement;
+        }
+
+        internal ISerializer Serializer { get; set; }
 
         /// <summary>
         ///  Set the routing key for this query. <p> This method allows to manually
@@ -140,13 +168,19 @@ namespace Cassandra
         /// </summary>
         /// <param name="statement">Statement to add to the batch</param>
         /// <returns>The Batch statement</returns>
-        /// <exception cref="System.ArgumentOutOfRangeException">Thrown when trying to add more than <c>short.MaxValue</c> Statements</exception>
+        /// <exception cref="System.ArgumentOutOfRangeException">Thrown when trying to add more than <c>ushort.MaxValue</c> Statements</exception>
         public BatchStatement Add(Statement statement)
         {
             if (_queries.Count >= ushort.MaxValue)
             {
                 //see BatchMessage.codec field in BatchMessage.java in server code, and BatchRequest.GetFrame in this driver
-                throw new ArgumentOutOfRangeException(string.Format("There can be only {0} child statement in a batch statement accordung to the cassandra native protocol", short.MaxValue));
+                throw new ArgumentOutOfRangeException(string.Format("There can be only {0} child statement in a batch statement accordung to the cassandra native protocol", ushort.MaxValue));
+            }
+
+            if (statement.OutgoingPayload != null && statement.OutgoingPayload.ContainsKey(ProxyExecuteKey))
+            {
+                throw new ArgumentException("Batch statement cannot contain statements with proxy execution." +
+                                            "Use ExecuteAs(...) on the batch statement instead");
             }
             _queries.Add(statement);
             return this;
@@ -162,9 +196,20 @@ namespace Cassandra
             return this;
         }
 
-        internal override IQueryRequest CreateBatchRequest(ProtocolVersion protocolVersion)
+        internal override IQueryRequest CreateBatchRequest(ISerializer serializer)
         {
             throw new InvalidOperationException("Batches cannot be included recursively");
+        }
+
+        /// <summary>
+        /// Sets the keyspace this batch operates on. The keyspace should only be set when the statements in this
+        /// batch apply to a different keyspace to the logged keyspace of the <see cref="ISession"/>.
+        /// </summary>
+        /// <param name="name">The keyspace name.</param>
+        public BatchStatement SetKeyspace(string name)
+        {
+            _keyspace = name;
+            return this;
         }
     }
 }

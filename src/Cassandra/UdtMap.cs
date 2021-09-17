@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -33,8 +33,8 @@ namespace Cassandra
     {
         private const string NotPropertyMessage = "The expression '{0}' does not refer to a property.";
 
-        internal UdtMap(string udtName)
-            : base(typeof(T), udtName)
+        internal UdtMap(string udtName, string keyspace)
+            : base(typeof(T), udtName, keyspace)
         {
         }
 
@@ -83,7 +83,7 @@ namespace Cassandra
         protected readonly Dictionary<string, PropertyInfo> _fieldNameToProperty;
         protected readonly Dictionary<PropertyInfo, string> _propertyToFieldName;
         // ReSharper enable InconsistentNaming
-        private Serializer _serializer;
+        private ISerializer _serializer;
         internal static TypeConverter TypeConverter = new DefaultTypeConverter();
 
         public const BindingFlags PropertyFlags =
@@ -97,26 +97,29 @@ namespace Cassandra
 
         protected internal UdtColumnInfo Definition { get; protected set; }
 
-        protected UdtMap(Type netType, string udtName)
+        protected internal string Keyspace { get; }
+
+        protected UdtMap(Type netType, string udtName) : this(netType, udtName, null)
         {
-            if (netType == null)
-            {
-                throw new ArgumentNullException("netType");
-            }
-            NetType = netType;
+        }
+        
+        protected UdtMap(Type netType, string udtName, string keyspace)
+        {
+            NetType = netType ?? throw new ArgumentNullException("netType");
             UdtName = string.IsNullOrWhiteSpace(udtName) ? NetType.Name : udtName;
             IgnoreCase = true;
+            Keyspace = keyspace;
 
             _fieldNameToProperty = new Dictionary<string, PropertyInfo>();
             _propertyToFieldName = new Dictionary<PropertyInfo, string>();
         }
 
-        internal void SetSerializer(Serializer serializer)
+        internal void SetSerializer(ISerializer serializer)
         {
             _serializer = serializer;
         }
 
-        protected void AddPropertyMapping(PropertyInfo propInfo, string udtFieldName)
+        public void AddPropertyMapping(PropertyInfo propInfo, string udtFieldName)
         {
             if (_fieldNameToProperty.ContainsKey(udtFieldName))
             {
@@ -202,8 +205,7 @@ namespace Cassandra
         protected internal string GetUdtFieldName(PropertyInfo property)
         {
             // See if there is a mapping registered for the specific property
-            string fieldName;
-            if (_propertyToFieldName.TryGetValue(property, out fieldName))
+            if (_propertyToFieldName.TryGetValue(property, out string fieldName))
             {
                 return fieldName;
             }
@@ -218,8 +220,7 @@ namespace Cassandra
         protected internal PropertyInfo GetPropertyForUdtField(string udtFieldName)
         {
             // See if there is a mapping registered for the field
-            PropertyInfo prop;
-            if (_fieldNameToProperty.TryGetValue(udtFieldName, out prop))
+            if (_fieldNameToProperty.TryGetValue(udtFieldName, out PropertyInfo prop))
             {
                 return prop;
             }
@@ -240,9 +241,9 @@ namespace Cassandra
         /// <summary>
         /// Creates a new UdtMap for the specified .NET type, optionally mapped to the specified UDT name.
         /// </summary>
-        public static UdtMap<T> For<T>(string udtName = null) where T : new()
+        public static UdtMap<T> For<T>(string udtName = null, string keyspace = null) where T : new()
         {
-            return new UdtMap<T>(udtName);
+            return new UdtMap<T>(udtName, keyspace);
         }
 
         /// <summary>

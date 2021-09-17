@@ -17,6 +17,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using Cassandra.Serialization;
 
 namespace Cassandra.YugaByte
 {
@@ -146,7 +147,7 @@ namespace Cassandra.YugaByte
 
         public static int GetKey(ICluster cluster, BoundStatement boundStatement)
         {
-            var serializer = ((Cluster)cluster).Serializer;
+            var serializer = ((Cluster)cluster).Metadata.ControlConnection.Serializer.GetCurrentSerializer();
             PreparedStatement pstmt = boundStatement.PreparedStatement;
             var hashIndexes = pstmt.RoutingIndexes;
 
@@ -310,7 +311,6 @@ namespace Cassandra.YugaByte
                     throw new InvalidTypeException("Unknown datatype " + type.ToString() + " for a partition key column");
             }
         }
-
         public bool RequiresPartitionMap
         {
             get

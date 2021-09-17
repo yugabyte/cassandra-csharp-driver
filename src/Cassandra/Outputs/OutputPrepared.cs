@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,9 +19,13 @@ namespace Cassandra
 {
     internal class OutputPrepared : IOutput
     {
-        public RowSetMetadata Metadata { get; }
+        public RowSetMetadata VariablesRowsMetadata { get; }
+
+        public RowSetMetadata ResultRowsMetadata { get; }
 
         public byte[] QueryId { get; }
+
+        public byte[] ResultMetadataId { get; }
 
         public System.Guid? TraceId { get; internal set; }
 
@@ -29,7 +33,21 @@ namespace Cassandra
         {
             QueryId = reader.ReadShortBytes();
 
-            Metadata = new RowSetMetadata(reader, protocolVersion.SupportsPreparedPartitionKey());
+            if (protocolVersion.SupportsResultMetadataId())
+            {
+                ResultMetadataId = reader.ReadShortBytes();
+            }
+
+            VariablesRowsMetadata = new RowSetMetadata(reader, protocolVersion.SupportsPreparedPartitionKey());
+            ResultRowsMetadata = new RowSetMetadata(reader, false);
+        }
+        
+        // for testing
+        internal OutputPrepared(byte[] queryId, RowSetMetadata rowSetVariablesRowsMetadata, RowSetMetadata resultRowsMetadata)
+        {
+            QueryId = queryId;
+            VariablesRowsMetadata = rowSetVariablesRowsMetadata;
+            ResultRowsMetadata = resultRowsMetadata;
         }
 
         public void Dispose()

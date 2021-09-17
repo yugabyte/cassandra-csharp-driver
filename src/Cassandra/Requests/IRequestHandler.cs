@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
+using Cassandra.Connections;
+using Cassandra.ExecutionProfiles;
 using Cassandra.Serialization;
 
 namespace Cassandra.Requests
@@ -27,11 +29,11 @@ namespace Cassandra.Requests
     /// </summary>
     internal interface IRequestHandler
     {
-        Policies Policies { get; }
+        IRequestOptions RequestOptions { get; }
 
         IExtendedRetryPolicy RetryPolicy { get; }
 
-        Serializer Serializer { get; }
+        ISerializer Serializer { get; }
 
         IStatement Statement { get; }
 
@@ -91,6 +93,6 @@ namespace Cassandra.Requests
         /// <summary>
         /// Builds the Request to send to a cassandra node based on the statement type
         /// </summary>
-        IRequest BuildRequest(IStatement statement, Serializer serializer, Configuration config);
+        IRequest BuildRequest();
     }
 }

@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,20 +14,20 @@
 //   limitations under the License.
 //
 
-using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Cassandra.IntegrationTests.TestBase;
+using Cassandra.Tests;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class MultiThreadingTests : TestGlobals
     {
         Builder _builder;
@@ -38,7 +38,7 @@ namespace Cassandra.IntegrationTests.Core
         {
             var rp = new RetryLoadBalancingPolicy(new RoundRobinPolicy(), new ConstantReconnectionPolicy(100));
             rp.ReconnectionEvent += (s, ev) => Thread.Sleep((int)ev.DelayMs);
-            _builder = Cluster.Builder()
+            _builder = ClusterBuilder()
                 .WithReconnectionPolicy(new ConstantReconnectionPolicy(100))
                 .WithQueryTimeout(60 * 1000)
                 .WithLoadBalancingPolicy(rp);
@@ -189,7 +189,7 @@ namespace Cassandra.IntegrationTests.Core
                 ISession localSession = localCluster.Connect();
                 localSession.CreateKeyspaceIfNotExists(keyspaceName);
                 localSession.ChangeKeyspace(keyspaceName);
-                localSession.Execute(String.Format(TestUtils.CreateTableAllTypes, "sampletable"));
+                localSession.Execute(string.Format(TestUtils.CreateTableAllTypes, "sampletable"));
                 var insertStatement = localSession.Prepare("INSERT INTO sampletable (id, blob_sample) VALUES (?, ?)");
                 var rowLength = 100;
                 var rnd = new Random();
@@ -212,7 +212,7 @@ namespace Cassandra.IntegrationTests.Core
             catch (Exception e)
             {
                 Trace.TraceError("Unexpected Exception was thrown! Message: " + e.Message);
-                throw e;
+                throw;
             }
             finally
             {

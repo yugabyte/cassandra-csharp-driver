@@ -1,4 +1,20 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -12,9 +28,6 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
     {
         public dynamic Data { get; set; }
         public List<SimulacronDataCenter> DataCenters { get; set; }
-        private const string CreateClusterPathFormat = "/cluster?data_centers={0}&cassandra_version={1}&dse_version={2}&name={3}" +
-                                                       "&activity_log={4}&num_tokens={5}";
-        private const string CreateClusterPath = "/cluster";
 
         public IPEndPoint InitialContactPoint
         {
@@ -25,20 +38,42 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
             }
         }
 
-        private IPEndPoint GetTupleFromContactPoint(string contact)
+        public IEnumerable<IPEndPoint> ContactPoints
         {
-            if (contact.Contains(":"))
-            {
-                var parts = contact.Split(':');
-                var addr = parts[0];
-                var port = int.Parse(parts[1]);
-                return new IPEndPoint(IPAddress.Parse(addr), port);
-            }
-            return new IPEndPoint(IPAddress.Parse(contact), 9042);
+            get { return DataCenters.SelectMany(d => d.Nodes).Select(n => GetTupleFromContactPoint(n.ContactPoint)); }
         }
 
-        private SimulacronCluster(string id) : base(id)
+        private IPEndPoint GetTupleFromContactPoint(string contact)
         {
+            var addr = contact;
+            var port = 9042;
+            try
+            {
+                // ran into a FormatException from IPAddress.Parse here once so 
+                // try catch to figure out why that happened
+                if (contact.Contains(":"))
+                {
+                    var parts = contact.Split(':');
+                    addr = parts[0];
+                    port = int.Parse(parts[1]);
+                    return new IPEndPoint(IPAddress.Parse(addr), port);
+                }
+
+                return new IPEndPoint(IPAddress.Parse(contact), 9042);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"{ex.Message}{Environment.NewLine}addr = {addr} port = {port}", ex);
+            }
+        }
+
+        public SimulacronCluster(string id, SimulacronManager simulacronManager) : base(id, simulacronManager)
+        {
+        }
+        
+        public static Task<SimulacronCluster> CreateNewAsync(int nodeLength)
+        {
+            return SimulacronManager.DefaultInstance.CreateNewAsync(nodeLength);
         }
 
         /// <summary>
@@ -46,17 +81,17 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
         /// </summary>
         public static SimulacronCluster CreateNew(int nodeLength)
         {
-            return CreateNew(new SimulacronOptions { Nodes = nodeLength.ToString() });
+            return SimulacronManager.DefaultInstance.CreateNew(nodeLength);
+        }
+        
+        public static Task<SimulacronCluster> CreateNewAsync(SimulacronOptions options)
+        {
+            return SimulacronManager.DefaultInstance.CreateNewAsync(options);
         }
 
         public static SimulacronCluster CreateNew(SimulacronOptions options)
         {
-            var simulacronManager = SimulacronManager.Instance;
-            simulacronManager.Start();
-            var path = string.Format(CreateClusterPathFormat, options.Nodes, options.GetCassandraVersion(),
-                options.GetDseVersion(), options.Name, options.ActivityLog, options.NumberOfTokens);
-            var data = TaskHelper.WaitToComplete(Post(path, null));
-            return CreateFromData(data);
+            return SimulacronManager.DefaultInstance.CreateNew(options);
         }
 
         /// <summary>
@@ -64,39 +99,12 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
         /// </summary>
         public static SimulacronCluster CreateNewWithPostBody(dynamic body)
         {
-            var simulacronManager = SimulacronManager.Instance;
-            simulacronManager.Start();
-            var data = TaskHelper.WaitToComplete(Post(CreateClusterPath, body));
-            return CreateFromData(data);
-        }
-
-        private static SimulacronCluster CreateFromData(dynamic data)
-        {
-            var cluster = new SimulacronCluster(data["id"].ToString())
-            {
-                Data = data,
-                DataCenters = new List<SimulacronDataCenter>()
-            };
-            var dcs = (JArray) cluster.Data["data_centers"];
-            foreach (var dc in dcs)
-            {
-                var dataCenter = new SimulacronDataCenter(cluster.Id + "/" + dc["id"]);
-                cluster.DataCenters.Add(dataCenter);
-                dataCenter.Nodes = new List<SimulacronNode>();
-                var nodes = (JArray) dc["nodes"];
-                foreach (var nodeJObject in nodes)
-                {
-                    var node = new SimulacronNode(dataCenter.Id + "/" + nodeJObject["id"]);
-                    dataCenter.Nodes.Add(node);
-                    node.ContactPoint = nodeJObject["address"].ToString();
-                }
-            }
-            return cluster;
+            return SimulacronManager.DefaultInstance.CreateNewWithPostBody(body);
         }
 
         public Task DropConnection(string ip, int port)
         {
-            return Delete(GetPath("connection") + "/" + ip + "/" + port);
+            return DeleteAsync(GetPath("connection") + "/" + ip + "/" + port);
         }
 
         public Task DropConnection(IPEndPoint endpoint)
@@ -104,10 +112,10 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
             return DropConnection(endpoint.Address.ToString(), endpoint.Port);
         }
 
-        public List<IPEndPoint> GetConnectedPorts()
+        public async Task<List<IPEndPoint>> GetConnectedPortsAsync()
         {
             var result = new List<IPEndPoint>();
-            var response = GetConnections();
+            var response = await GetConnectionsAsync().ConfigureAwait(false);
             var dcs = (JArray) response["data_centers"];
             foreach (var dc in dcs)
             {
@@ -124,9 +132,14 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
             return result;
         }
 
-        public Task Remove()
+        public async Task RemoveAsync()
         {
-            return Delete(GetPath("cluster"));
+            await DeleteAsync(GetPath("cluster")).ConfigureAwait(false);
+        }
+
+        public SimulacronNode GetNode(int index)
+        {
+            return DataCenters.SelectMany(dc => dc.Nodes).ElementAt(index);
         }
 
         public SimulacronNode GetNode(string endpoint)
@@ -146,7 +159,12 @@ namespace Cassandra.IntegrationTests.TestClusterManagement.Simulacron
 
         public void Dispose()
         {
-            TaskHelper.WaitToComplete(Remove());
+            TaskHelper.WaitToComplete(Task.Run(ShutDownAsync), 60 * 1000);
+        }
+
+        public Task ShutDownAsync()
+        {
+            return RemoveAsync();
         }
     }
 }

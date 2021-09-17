@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -32,26 +32,31 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Linq;
-using System.Net;
+using Cassandra.SessionManagement;
 
 namespace Cassandra
 {
     /// <summary>
-    ///  A data-center aware Round-robin load balancing policy. <p> This policy
-    ///  provides round-robin queries over the node of the local datacenter. It also
-    ///  includes in the query plans returned a configurable number of hosts in the
-    ///  remote datacenters, but those are always tried after the local nodes. In
-    ///  other words, this policy guarantees that no host in a remote datacenter will
-    ///  be queried unless no host in the local datacenter can be reached. </p><p> If used
-    ///  with a single datacenter, this policy is equivalent to the
-    ///  <see cref="RoundRobinPolicy"/> policy, but its GetDatacenter awareness
-    ///  incurs a slight overhead so the <see cref="RoundRobinPolicy"/>
-    ///  policy could be preferred to this policy in that case.</p>
+    /// A data-center aware Round-robin load balancing policy.
+    /// <para>
+    /// This policy provides round-robin queries over the node of the local datacenter. Currently, it also includes in the query plans
+    /// returned a configurable number of hosts in the remote datacenters (which are always tried after the local nodes)
+    /// but this functionality will be removed in the next major version of the driver.
+    /// See the comments on <see cref="DCAwareRoundRobinPolicy(string, int)"/> for more information.
+    /// </para>
     /// </summary>
     public class DCAwareRoundRobinPolicy : ILoadBalancingPolicy
     {
+        private const string UsedHostsPerRemoteDcObsoleteMessage =
+            "The usedHostsPerRemoteDc parameter will be removed in the next major release of the driver. " +
+            "DC failover should not be done in the driver, which does not have the necessary context to know " +
+            "what makes sense considering application semantics. See https://datastax-oss.atlassian.net/browse/CSHARP-722";
+        
+        private static readonly Logger Logger = new Logger(typeof(DCAwareRoundRobinPolicy));
+
         private string _localDc;
         private readonly int _usedHostsPerRemoteDc;
+
         private readonly int _maxIndex = Int32.MaxValue - 10000;
         private volatile Tuple<List<Host>, List<Host>> _hosts;
         private readonly object _hostCreationLock = new object();
@@ -69,9 +74,10 @@ namespace Cassandra
         /// constructor of this class.
         /// </para>
         /// </summary>
+#pragma warning disable 618
         public DCAwareRoundRobinPolicy() : this(null, 0)
+#pragma warning restore 618
         {
-            
         }
 
         /// <summary>
@@ -82,7 +88,9 @@ namespace Cassandra
         ///  <c>new DCAwareRoundRobinPolicy(localDc, 0)</c>.</p>
         /// </summary>
         /// <param name="localDc"> the name of the local datacenter (as known by Cassandra).</param>
+#pragma warning disable 618
         public DCAwareRoundRobinPolicy(string localDc) : this(localDc, 0)
+#pragma warning restore 618
         {
         }
 
@@ -94,44 +102,67 @@ namespace Cassandra
         /// The name of the local datacenter provided must be the local
         /// datacenter name as known by Cassandra.</p>
         ///</summary>
-        /// <param name="localDc"> the name of the local datacenter (as known by
+        /// <param name="localDc">The name of the local datacenter (as known by
         /// Cassandra).</param>
-        /// <param name="usedHostsPerRemoteDc"> the number of host per remote
+        /// <param name="usedHostsPerRemoteDc">The number of host per remote
         /// datacenter that policies created by the returned factory should
         /// consider. Created policies <c>distance</c> method will return a
-        /// <c>HostDistance.Remote</c> distance for only <c>
-        /// usedHostsPerRemoteDc</c> hosts per remote datacenter. Other hosts
-        /// of the remote datacenters will be ignored (and thus no
-        /// connections to them will be maintained).</param>
+        /// <c>HostDistance.Remote</c> distance for only <c>usedHostsPerRemoteDc</c>
+        /// hosts per remote datacenter. Other hosts of the remote datacenters will be ignored
+        /// (and thus no connections to them will be maintained).
+        /// <para>Note that this parameter will be removed in the next major release of
+        /// the driver.</para></param>
+        [Obsolete(DCAwareRoundRobinPolicy.UsedHostsPerRemoteDcObsoleteMessage)]
         public DCAwareRoundRobinPolicy(string localDc, int usedHostsPerRemoteDc)
         {
             _localDc = localDc;
             _usedHostsPerRemoteDc = usedHostsPerRemoteDc;
         }
 
+        /// <summary>
+        /// Gets the Local Datacenter. This value is provided in the constructor.
+        /// </summary>
+        public string LocalDc => _localDc;
+
+        /// <summary>
+        /// Gets the number of hosts per remote datacenter that should be considered. This value is provided in the constructor.
+        /// </summary>
+        [Obsolete(DCAwareRoundRobinPolicy.UsedHostsPerRemoteDcObsoleteMessage)]
+        public int UsedHostsPerRemoteDc => _usedHostsPerRemoteDc;
 
         public void Initialize(ICluster cluster)
         {
             _cluster = cluster;
+
             //When the pool changes, it should clear the local cache
             _cluster.HostAdded += _ => ClearHosts();
             _cluster.HostRemoved += _ => ClearHosts();
+
+            var availableDcs = _cluster.AllHosts().Select(h => h.Datacenter).Where(dc => dc != null).Distinct().ToList();
+            var availableDcsStr = string.Join(", ", availableDcs);
+
             if (_localDc == null)
             {
+                DCAwareRoundRobinPolicy.Logger.Warning(
+                    "Local datacenter was not specified. In the next major release of the driver " +
+                    "applications will be required to specify the local datacenter in the load balancing policy. " +
+                    $"Available datacenters: {availableDcsStr}.");
+
                 var host = GetLocalHost();
                 if (host == null)
                 {
                     throw new DriverInternalError("Local datacenter could not be determined");
                 }
+
                 _localDc = host.Datacenter;
                 return;
             }
+
             //Check that the datacenter exists
-            if (_cluster.AllHosts().FirstOrDefault(h => h.Datacenter == _localDc) == null)
+            if (!availableDcs.Contains(_localDc))
             {
-                var availableDcs = string.Join(", ", _cluster.AllHosts().Select(h => h.Datacenter));
-                throw new ArgumentException(string.Format(
-                    "Datacenter {0} does not match any of the nodes, available datacenters: {1}.", _localDc, availableDcs));
+                throw new ArgumentException(
+                    $"Datacenter {_localDc} does not match any of the nodes, available datacenters: {availableDcsStr}.");
             }
         }
 
@@ -141,8 +172,7 @@ namespace Cassandra
         /// </summary>
         private Host GetLocalHost()
         {
-            var clusterImplementation = _cluster as Cluster;
-            if (clusterImplementation == null)
+            if (!(_cluster is IInternalCluster clusterImplementation))
             {
                 //fallback to use any of the hosts
                 return _cluster.AllHosts().FirstOrDefault(h => h.Datacenter != null);
@@ -210,9 +240,8 @@ namespace Cassandra
             var dcHosts = new Dictionary<string, int>();
             foreach (var h in remoteHosts)
             {
-                int hostYieldedByDc;
                 var dc = GetDatacenter(h);
-                dcHosts.TryGetValue(dc, out hostYieldedByDc);
+                dcHosts.TryGetValue(dc, out int hostYieldedByDc);
                 if (hostYieldedByDc >= _usedHostsPerRemoteDc)
                 {
                     //We already returned the amount of remotes nodes required
@@ -256,11 +285,8 @@ namespace Cassandra
                 var remoteHosts = new List<Host>();
 
                 //Do not reorder instructions, the host list must be up to date now, not earlier
-#if !NETCORE
                 Thread.MemoryBarrier();
-#else
-                Interlocked.MemoryBarrier();
-#endif
+
                 //shallow copy the nodes
                 var allNodes = _cluster.AllHosts().ToArray();
 

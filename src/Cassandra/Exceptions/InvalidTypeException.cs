@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ namespace Cassandra
         }
 
         public InvalidTypeException(String paramName, object receivedType, object[] expectedType)
-            : base(String.Format("Received object of type: {0}, expected: {1} {2}. Parameter name that caused exception: {3}",
+            : base(string.Format("Received object of type: {0}, expected: {1} {2}. Parameter name that caused exception: {3}",
                                  receivedType, expectedType[0], expectedType.Length > 1 ? "or" + expectedType[1] : "", paramName))
         {
             ReceivedType = receivedType;

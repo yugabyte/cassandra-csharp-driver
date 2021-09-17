@@ -71,7 +71,7 @@ namespace Cassandra.YugaByte.Tests
             {
                 foreach (var host in cluster.AllHosts())
                 {
-                    var url = string.Format("http://{0}:{1}/metrics", host.Address.Address, 8888);
+                    var url = string.Format("http://{0}:{1}/metrics", host.Address.Address, 9000);
                     var response = client.DownloadString(url);
                     var json = JArray.Parse(response);
                     foreach (var child in json.Children())

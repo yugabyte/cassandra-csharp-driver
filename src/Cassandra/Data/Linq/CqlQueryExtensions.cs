@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -22,20 +22,20 @@ namespace Cassandra.Data.Linq
 {
     public static class CqlQueryExtensions
     {
-        internal static void CopyQueryPropertiesTo(this Statement src, Statement dst)
+        internal static void CopyQueryPropertiesTo(this IStatement src, IStatement dst)
         {
             dst.EnableTracing(src.IsTracing)
                .SetConsistencyLevel(src.ConsistencyLevel)
                .SetPageSize(src.PageSize)
                .SetPagingState(src.PagingState)
-               .SetRetryPolicy(src.RetryPolicy).
-                SetAutoPage(src.AutoPage);
+               .SetRetryPolicy(src.RetryPolicy)
+               .SetAutoPage(src.AutoPage);
             if (src.SerialConsistencyLevel != ConsistencyLevel.Any)
             {
                 dst.SetSerialConsistencyLevel(src.SerialConsistencyLevel);
             }
         }
-
+        
         /// <summary>
         /// Projects each element of a sequence into a new form.
         /// </summary>

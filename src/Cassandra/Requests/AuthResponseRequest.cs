@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,27 +14,27 @@
 //   limitations under the License.
 //
 
-using System.IO;
-using Cassandra.Serialization;
-
 namespace Cassandra.Requests
 {
-    internal class AuthResponseRequest : IRequest
+    internal class AuthResponseRequest : BaseRequest
     {
-        public const byte OpCode = 0x0F;
+        public const byte AuthResponseOpCode = 0x0F;
+
         private readonly byte[] _token;
 
-        public AuthResponseRequest(byte[] token)
+        public AuthResponseRequest(byte[] token) : base(false, null)
         {
             _token = token;
         }
 
-        public int WriteFrame(short streamId, MemoryStream stream, Serializer serializer)
+        protected override byte OpCode => AuthResponseRequest.AuthResponseOpCode;
+
+        /// <inheritdoc />
+        public override ResultMetadata ResultMetadata => null;
+
+        protected override void WriteBody(FrameWriter wb)
         {
-            var wb = new FrameWriter(stream, serializer);
-            wb.WriteFrameHeader(0x00, streamId, OpCode);
             wb.WriteBytes(_token);
-            return wb.Close();
         }
     }
 }

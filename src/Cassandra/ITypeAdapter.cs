@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ using System;
 namespace Cassandra
 {
     /// <summary>
-    /// DEPRECATED, use <see cref="Cassandra.Serialization.TypeSerializer{T}"/> instead.
+    /// DEPRECATED, use <see cref="Serialization.TypeSerializer{T}"/> instead.
     /// Represents a adapter to convert a Cassandra type to a CLR type.
     /// </summary>
     public interface ITypeAdapter

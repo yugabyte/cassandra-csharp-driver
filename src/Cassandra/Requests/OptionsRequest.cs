@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,20 +14,24 @@
 //   limitations under the License.
 //
 
-using System.IO;
-using Cassandra.Serialization;
-
 namespace Cassandra.Requests
 {
-    internal class OptionsRequest : IRequest
+    internal class OptionsRequest : BaseRequest
     {
-        public const byte OpCode = 0x05;
+        public const byte OptionsOpCode = 0x05;
 
-        public int WriteFrame(short streamId, MemoryStream stream, Serializer serializer)
+        public OptionsRequest() : base(false, null)
         {
-            var wb = new FrameWriter(stream, serializer);
-            wb.WriteFrameHeader(0x00, streamId, OpCode);
-            return wb.Close();
+        }
+
+        protected override byte OpCode => OptionsRequest.OptionsOpCode;
+
+        /// <inheritdoc />
+        public override ResultMetadata ResultMetadata => null;
+
+        protected override void WriteBody(FrameWriter wb)
+        {
+            // OPTIONS requests have a header only
         }
     }
 }

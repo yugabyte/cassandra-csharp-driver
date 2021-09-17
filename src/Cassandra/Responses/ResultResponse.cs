@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //
+
+using Cassandra.Requests;
 
 namespace Cassandra.Responses
 {
@@ -39,6 +41,11 @@ namespace Cassandra.Responses
         /// </summary>
         public IOutput Output { get; private set; }
 
+        /// <summary>
+        /// Is null if new_metadata_id is not set.
+        /// </summary>
+        public ResultMetadata NewResultMetadata { get; }
+
         internal ResultResponse(Frame frame) : base(frame)
         {
             Kind = (ResultResponseKind) Reader.ReadInt32();
@@ -48,7 +55,13 @@ namespace Cassandra.Responses
                     Output = new OutputVoid(TraceId);
                     break;
                 case ResultResponseKind.Rows:
-                    Output = new OutputRows(Reader, TraceId);
+                    var outputRows = new OutputRows(Reader, frame.ResultMetadata, TraceId);
+                    Output = outputRows;
+                    if (outputRows.ResultRowsMetadata.HasNewResultMetadataId())
+                    {
+                        NewResultMetadata = new ResultMetadata(
+                            outputRows.ResultRowsMetadata.NewResultMetadataId, outputRows.ResultRowsMetadata);
+                    }
                     break;
                 case ResultResponseKind.SetKeyspace:
                     Output = new OutputSetKeyspace(Reader.ReadString());
@@ -57,11 +70,17 @@ namespace Cassandra.Responses
                     Output = new OutputPrepared(frame.Header.Version, Reader);
                     break;
                 case ResultResponseKind.SchemaChange:
-                    Output = new OutputSchemaChange(Reader, TraceId);
+                    Output = new OutputSchemaChange(frame.Header.Version, Reader, TraceId);
                     break;
                 default:
                     throw new DriverInternalError("Unknown ResultResponseKind Type");
             }
+        }
+
+        protected ResultResponse(ResultResponseKind kind, IOutput output)
+        {
+            Kind = kind;
+            Output = output;
         }
 
         internal static ResultResponse Create(Frame frame)

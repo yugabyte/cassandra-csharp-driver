@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,19 +14,20 @@
 //   limitations under the License.
 //
 
-using Cassandra.IntegrationTests.TestBase;
+using Cassandra.IntegrationTests.TestClusterManagement;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
+using Cassandra.IntegrationTests.TestBase;
 using Cassandra.Serialization;
+using Cassandra.Tests;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class LargeDataTests : TestGlobals
     {
         private const int Key = 0;
@@ -119,7 +120,7 @@ namespace Cassandra.IntegrationTests.Core
 
             // according to specs it should accept  full UInt16.MaxValue, but for some reason it throws "The sum of all clustering columns is too long"
             string setVal = new string('a', UInt16.MaxValue - 9);
-            _session.Execute(string.Format("INSERT INTO {0}(k,i) VALUES({1},{{'{2}'}})", uniqueTableName, Key, setVal, ConsistencyLevel.Quorum));
+            _session.Execute(string.Format("INSERT INTO {0}(k,i) VALUES({1},{{'{2}'}})", uniqueTableName, Key, setVal));
 
             using (var rs = _session.Execute(string.Format("SELECT * FROM {0} WHERE k = {1}", uniqueTableName, Key), ConsistencyLevel.Quorum))
             {
@@ -143,10 +144,10 @@ namespace Cassandra.IntegrationTests.Core
             string setVal = new string('a', UInt16.MaxValue - 6);
             try
             {
-                _session.Execute(string.Format("INSERT INTO {0}(k,i) VALUES({1},{{'{2}'}})", uniqueTableName, Key, setVal, ConsistencyLevel.Quorum));
+                _session.Execute(string.Format("INSERT INTO {0}(k,i) VALUES({1},{{'{2}'}})", uniqueTableName, Key, setVal));
                 Assert.Fail("Expected exception was not thrown!");
             }
-            catch (Cassandra.InvalidQueryException e)
+            catch (InvalidQueryException e)
             {
                 string expectedErrMsg = "The sum of all clustering columns is too long";
                 Assert.True(e.Message.Contains(expectedErrMsg), "Exception message {0} did not contain expected error message {1}.", e.Message, expectedErrMsg);
@@ -194,7 +195,7 @@ namespace Cassandra.IntegrationTests.Core
                 _session.Execute(string.Format("INSERT INTO {0}(k,i) VALUES({1},{{ '{2}' : '{3}' }})", uniqueTableName, Key, mapKey, mapVal), ConsistencyLevel.Quorum);
                 Assert.Fail("Expected exception was not thrown!");
             }
-            catch (Cassandra.InvalidQueryException e)
+            catch (InvalidQueryException e)
             {
                 string expectedErrMsg = "The sum of all clustering columns is too long";
                 Assert.True(e.Message.Contains(expectedErrMsg),
@@ -219,7 +220,7 @@ namespace Cassandra.IntegrationTests.Core
                 _session.Execute(string.Format("INSERT INTO {0}(k,i) VALUES({1},{{ '{2}' : '{3}' }})", uniqueTableName, Key, mapKey, mapVal), ConsistencyLevel.Quorum);
                 Assert.Fail("Expected exception was not thrown!");
             }
-            catch (Cassandra.InvalidQueryException e)
+            catch (InvalidQueryException e)
             {
                 string expectedErrMsg = "Map value is too long.";
                 Assert.True(e.Message.Contains(expectedErrMsg),
@@ -268,7 +269,7 @@ namespace Cassandra.IntegrationTests.Core
         // Test a batch that writes a row of size
         private static void TestWideBatchRows(ISession session, string tableName)
         {
-            string cql = String.Format("CREATE TABLE {0} (i INT, str {1}, PRIMARY KEY(i,str))", tableName, "text");
+            string cql = string.Format("CREATE TABLE {0} (i INT, str {1}, PRIMARY KEY(i,str))", tableName, "text");
             session.Execute(cql);
 
             // Write data        
@@ -297,10 +298,10 @@ namespace Cassandra.IntegrationTests.Core
         // Test a wide row consisting of a ByteBuffer
         private static void TestByteRows(ISession session, string tableName)
         {
-            session.Execute(String.Format("CREATE TABLE {0} (k INT, i {1}, PRIMARY KEY(k,i))", tableName, "BLOB"));
+            session.Execute(string.Format("CREATE TABLE {0} (k INT, i {1}, PRIMARY KEY(k,i))", tableName, "BLOB"));
 
             // Build small ByteBuffer sample
-            var bw = new FrameWriter(new MemoryStream(), new Serializer(ProtocolVersion.V1));
+            var bw = new FrameWriter(new MemoryStream(), new SerializerManager(ProtocolVersion.V1).GetCurrentSerializer());
             for (int i = 0; i < 56; i++)
                 bw.WriteByte(0);
             bw.WriteUInt16(0xCAFE);
@@ -322,7 +323,7 @@ namespace Cassandra.IntegrationTests.Core
         // Test a row with a single extra large text value
         private static void TestLargeText(ISession session, string tableName)
         {
-            session.Execute(String.Format("CREATE TABLE {0} (k INT, i {1}, PRIMARY KEY(k,i))", tableName, "text"));
+            session.Execute(string.Format("CREATE TABLE {0} (k INT, i {1}, PRIMARY KEY(k,i))", tableName, "text"));
 
             // Write data
             var b = new StringBuilder();
@@ -406,7 +407,7 @@ namespace Cassandra.IntegrationTests.Core
             tableDeclaration.Append("k INT PRIMARY KEY");
             for (int i = 0; i < 330; ++i)
             {
-                tableDeclaration.Append(String.Format(", \"{0}\" INT", CreateColumnName(i)));
+                tableDeclaration.Append(string.Format(", \"{0}\" INT", CreateColumnName(i)));
             }
             tableDeclaration.Append(")");
             return tableDeclaration.ToString();

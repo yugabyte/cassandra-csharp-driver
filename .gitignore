@@ -47,3 +47,7 @@ src/packages/*/
 
 # Visual Studio for Mac
 *.userprefs
+
+doc/api-docs/api-docs
+doc/api-docs/api
+doc/api-docs/datastax-template

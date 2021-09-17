@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //
+
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -31,14 +32,14 @@ namespace Cassandra
         /// </summary>
         private readonly byte[] _buffer = new byte[4];
         private readonly Stream _stream;
-        private readonly Serializer _serializer;
+        private readonly ISerializer _serializer;
 
-        internal Serializer Serializer
+        internal ISerializer Serializer
         {
             get { return _serializer; }
         }
 
-        public FrameReader(Stream stream, Serializer serializer)
+        public FrameReader(Stream stream, ISerializer serializer)
         {
             _stream = stream;
             _serializer = serializer;

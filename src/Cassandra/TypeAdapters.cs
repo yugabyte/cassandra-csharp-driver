@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 namespace Cassandra
 {
     /// <summary>
-    /// TypeAdapters are deprecated and will be removed in future versions. Use <see cref="Cassandra.Serialization.TypeSerializer{T}"/> instead.
+    /// TypeAdapters are deprecated and will be removed in future versions. Use <see cref="Serialization.TypeSerializer{T}"/> instead.
     /// <para>
     /// Backwards compatibility only.
     /// </para>

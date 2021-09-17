@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 //
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
@@ -61,6 +60,12 @@ namespace Cassandra.Data.Linq
             return rs.FirstOrDefault();
         }
 
+        public new async Task<TEntity> ExecuteAsync(string executionProfile)
+        {
+            var rs = await base.ExecuteAsync(executionProfile).ConfigureAwait(false);
+            return rs.FirstOrDefault();
+        }
+
         public new IAsyncResult BeginExecute(AsyncCallback callback, object state)
         {
             return ExecuteAsync().ToApm(callback, state);
@@ -77,9 +82,15 @@ namespace Cassandra.Data.Linq
         /// </summary>
         public new TEntity Execute()
         {
-            var config = GetTable().GetSession().GetConfiguration();
-            var task = ExecuteAsync();
-            return TaskHelper.WaitToComplete(task, config.ClientOptions.QueryAbortTimeout);
+            return Execute(Configuration.DefaultExecutionProfileName);
+        }
+        
+        /// <summary>
+        /// Evaluates the Linq query, executes the cql statement with the provided execution profile and returns the first result.
+        /// </summary>
+        public new TEntity Execute(string executionProfile)
+        {
+            return WaitToCompleteWithMetrics(ExecuteAsync(executionProfile), QueryAbortTimeout);
         }
     }
 }

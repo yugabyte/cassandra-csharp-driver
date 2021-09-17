@@ -1,7 +1,22 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using Cassandra.Serialization;
 using Cassandra.Tests.Mapping.Pocos;
 
@@ -35,10 +50,9 @@ namespace Cassandra.Tests.Mapping.TestData
         /// </summary>
         public static RowSet GetSingleColumnRowSet<T>(string columnName, T[] values)
         {
-            var serializer = new Serializer(ProtocolVersion.MaxSupported);
+            var serializer = new SerializerManager(ProtocolVersion.MaxSupported);
             var rs = new RowSet();
-            IColumnInfo typeInfo;
-            var typeCode = serializer.GetCqlType(typeof (T), out typeInfo);
+            var typeCode = serializer.GetCurrentSerializer().GetCqlType(typeof(T), out IColumnInfo typeInfo);
             rs.Columns = new[]
             {
                 new CqlColumn { Name = columnName, TypeCode = typeCode, TypeInfo = typeInfo, Type = typeof(T), Index = 0}
@@ -63,13 +77,12 @@ namespace Cassandra.Tests.Mapping.TestData
 
         public static RowSet CreateMultipleValuesRowSet<T>(string[] columnNames, T[] genericValues, int rowLength = 1)
         {
-            var serializer = new Serializer(ProtocolVersion.MaxSupported);
+            var serializer = new SerializerManager(ProtocolVersion.MaxSupported);
             var rs = new RowSet();
             rs.Columns = new CqlColumn[columnNames.Length];
             for (var i = 0; i < columnNames.Length; i++)
             {
-                IColumnInfo typeInfo;
-                var type = typeof (T);
+                var type = typeof(T);
                 if (type == typeof (Object))
                 {
                     //Try to guess by value
@@ -79,7 +92,7 @@ namespace Cassandra.Tests.Mapping.TestData
                     }
                     type = genericValues[i].GetType();
                 }
-                var typeCode = serializer.GetCqlType(type, out typeInfo);
+                var typeCode = serializer.GetCurrentSerializer().GetCqlType(type, out IColumnInfo typeInfo);
                 rs.Columns[i] = new CqlColumn
                 {
                     Name = columnNames[i],

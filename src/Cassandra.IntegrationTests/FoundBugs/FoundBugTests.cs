@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -15,18 +15,17 @@
 //
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.FoundBugs
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class FoundBugTests : TestGlobals
     {
         [Test]
@@ -34,7 +33,7 @@ namespace Cassandra.IntegrationTests.FoundBugs
         {
             try
             {
-                using (var cluster = Cluster.Builder().AddContactPoint("0.0.0.0").Build())
+                using (var cluster = ClusterBuilder().AddContactPoint("0.0.0.0").Build())
                 {
                     try
                     {
@@ -85,7 +84,7 @@ namespace Cassandra.IntegrationTests.FoundBugs
                 }
                 catch (Exception e)
                 {
-                    if (e.GetType() == typeof (Cassandra.NoHostAvailableException))
+                    if (e.GetType() == typeof (NoHostAvailableException))
                     {
                         noHostAvailableExceptionWasCaught = true;
                     }
@@ -110,14 +109,14 @@ namespace Cassandra.IntegrationTests.FoundBugs
                 }
                 catch (Exception e)
                 {
-                    if (e.GetType() == typeof (Cassandra.NoHostAvailableException))
+                    if (e.GetType() == typeof (NoHostAvailableException))
                     {
                         Trace.TraceInformation("Host still not up yet, waiting another one second ... ");
                         Thread.Sleep(1000);
                     }
                     else
                     {
-                        throw e;
+                        throw;
                     }
                 }
             }

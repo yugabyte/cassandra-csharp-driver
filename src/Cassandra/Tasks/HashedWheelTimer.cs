@@ -1,10 +1,24 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
-using Cassandra.Collections;
 
 namespace Cassandra.Tasks
 {
@@ -165,8 +179,7 @@ namespace Cassandra.Tasks
         /// </summary>
         private void AddPending()
         {
-            Tuple<TimeoutItem, long> pending;
-            while (_pendingToAdd.TryDequeue(out pending))
+            while (_pendingToAdd.TryDequeue(out Tuple<TimeoutItem, long> pending))
             {
                 AddTimeout(pending.Item1, pending.Item2);
             }
@@ -198,8 +211,7 @@ namespace Cassandra.Tasks
         /// </summary>
         private void RemoveCancelled()
         {
-            TimeoutItem timeout;
-            while (_cancelledTimeouts.TryDequeue(out timeout))
+            while (_cancelledTimeouts.TryDequeue(out TimeoutItem timeout))
             {
                 try
                 {
@@ -264,9 +276,6 @@ namespace Cassandra.Tasks
                     return;
                 }
                 item.Next.Previous = item.Previous;
-                //there should not be any reference to the item in the bucket
-                //Break references to make GC easier
-                item.Dispose();
             }
 
             public IEnumerator<TimeoutItem> GetEnumerator()
@@ -292,7 +301,7 @@ namespace Cassandra.Tasks
         /// <summary>
         /// Represents an scheduled timeout
         /// </summary>
-        internal interface ITimeout : IDisposable
+        internal interface ITimeout
         {
             bool IsCancelled { get; }
 
@@ -359,28 +368,6 @@ namespace Cassandra.Tasks
                     return;
                 }
                 _action(_actionState);
-            }
-
-            public void Dispose()
-            {
-                DoDispose();
-                GC.SuppressFinalize(this);
-            }
-
-            private void DoDispose()
-            {
-                //Break references
-                Next = null;
-                Previous = null;
-                Bucket = null;
-                _actionState = null;
-                _action = null;
-                _timer = null;
-            }
-
-            ~TimeoutItem()
-            {
-                DoDispose();
             }
         }
     }

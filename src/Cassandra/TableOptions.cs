@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -147,6 +147,15 @@ namespace Cassandra
         {
             get { return compressionParams; }
         }
+
+        /// <summary>
+        /// Represents the nodesync options for this table.
+        /// <para>
+        /// For DSE versions prior to 6.0.0 and Apache Cassandra clusters, this method always returns <c>null</c>.  If nodesync
+        /// was not explicitly configured for this table this method will also return <c>null</c>.
+        /// </para>
+        /// </summary>
+        public IDictionary<string, string> NodeSync { get; internal set; }
 
         public TableOptions()
         {

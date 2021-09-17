@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -24,78 +24,82 @@ namespace Cassandra.Requests
     /// <summary>
     /// Represents a protocol EXECUTE request
     /// </summary>
-    internal class ExecuteRequest : IQueryRequest, ICqlRequest
+    internal class ExecuteRequest : BaseRequest, IQueryRequest, ICqlRequest
     {
-        public const byte OpCode = 0x0A;
-        private FrameHeader.HeaderFlag _headerFlags;
+        public const byte ExecuteOpCode = 0x0A;
+
         private readonly byte[] _id;
         private readonly QueryProtocolOptions _queryOptions;
 
         public ConsistencyLevel Consistency 
         { 
-            get { return _queryOptions.Consistency; }
-            set { _queryOptions.Consistency = value; }
+            get => _queryOptions.Consistency;
+            set => _queryOptions.Consistency = value;
         }
 
         public byte[] PagingState
         {
-            get { return _queryOptions.PagingState; }
-            set { _queryOptions.PagingState = value; }
+            get => _queryOptions.PagingState;
+            set => _queryOptions.PagingState = value;
         }
 
-        public int PageSize
-        {
-            get { return _queryOptions.PageSize; }
-        }
+        public int PageSize => _queryOptions.PageSize;
 
-        public ConsistencyLevel SerialConsistency
-        {
-            get { return _queryOptions.SerialConsistency; }
-        }
+        public ConsistencyLevel SerialConsistency => _queryOptions.SerialConsistency;
+        
+        public bool SkipMetadata => _queryOptions.SkipMetadata;
 
-        public IDictionary<string, byte[]> Payload { get; set; }
+        /// <inheritdoc />
+        public override ResultMetadata ResultMetadata { get; }
 
-        public ExecuteRequest(ProtocolVersion protocolVersion, byte[] id, RowSetMetadata metadata, bool tracingEnabled, QueryProtocolOptions queryOptions)
+        public ExecuteRequest(
+            ISerializer serializer, 
+            byte[] id, 
+            RowSetMetadata variablesMetadata, 
+            ResultMetadata resultMetadata, 
+            QueryProtocolOptions queryOptions,
+            bool tracingEnabled, 
+            IDictionary<string, byte[]> payload) : base(serializer, tracingEnabled, payload)
         {
-            if (metadata != null && queryOptions.Values.Length != metadata.Columns.Length)
+            var protocolVersion = serializer.ProtocolVersion;
+            if (variablesMetadata != null && queryOptions.Values.Length != variablesMetadata.Columns.Length)
             {
                 throw new ArgumentException("Number of values does not match with number of prepared statement markers(?).");
             }
             _id = id;
             _queryOptions = queryOptions;
-            if (tracingEnabled)
+
+            if (protocolVersion.SupportsResultMetadataId())
             {
-                _headerFlags = FrameHeader.HeaderFlag.Tracing;
+                ResultMetadata = resultMetadata;
             }
 
-            if (queryOptions.SerialConsistency != ConsistencyLevel.Any && queryOptions.SerialConsistency.IsSerialConsistencyLevel() == false)
+            if (queryOptions.SerialConsistency != ConsistencyLevel.Any 
+                && queryOptions.SerialConsistency.IsSerialConsistencyLevel() == false)
             {
                 throw new RequestInvalidException("Non-serial consistency specified as a serial one.");
             }
-            if (queryOptions.Timestamp != null && !protocolVersion.SupportsTimestamp())
+
+            if (queryOptions.RawTimestamp != null && !protocolVersion.SupportsTimestamp())
             {
                 throw new NotSupportedException("Timestamp for query is supported in Cassandra 2.1 or above.");
             }
         }
 
-        public int WriteFrame(short streamId, MemoryStream stream, Serializer serializer)
-        {
-            var wb = new FrameWriter(stream, serializer);
-            if (Payload != null)
-            {
-                _headerFlags |= FrameHeader.HeaderFlag.CustomPayload;
-            }
-            wb.WriteFrameHeader((byte)_headerFlags, streamId, OpCode);
-            if (Payload != null)
-            {
-                //A custom payload for this request
-                wb.WriteBytesMap(Payload);
-            }
-            wb.WriteShortBytes(_id);
-            _queryOptions.Write(wb, true);
-            return wb.Close();
-        }
+        protected override byte OpCode => ExecuteRequest.ExecuteOpCode;
 
+        protected override void WriteBody(FrameWriter wb)
+        {
+            wb.WriteShortBytes(_id);
+
+            if (ResultMetadata != null)
+            {
+                wb.WriteShortBytes(ResultMetadata.ResultMetadataId);
+            }
+
+            _queryOptions.Write(wb, true);
+        }
+        
         public void WriteToBatch(FrameWriter wb)
         {
             wb.WriteByte(1); //prepared query

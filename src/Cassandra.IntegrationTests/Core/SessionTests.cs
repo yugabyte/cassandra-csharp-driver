@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -27,35 +27,37 @@
 //   either express or implied.  See the License for the specific language governing permissions
 //   and limitations under the License.
 
-using Cassandra.IntegrationTests.TestBase;
-using Cassandra.IntegrationTests.TestClusterManagement;
-using System.Diagnostics;
-using Cassandra.Tests;
-using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Cassandra.Tasks;
+
+using Cassandra.IntegrationTests.TestBase;
+using Cassandra.SessionManagement;
+using Cassandra.Tests;
+
+using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [Category("short")]
+    [Category(TestCategory.Short), Category(TestCategory.RealCluster)]
     public class SessionTests : SharedClusterTest
     {
-        public SessionTests() : base(2)
+        public SessionTests() : base(3, false)
         {
-            
         }
 
         [Test]
         public void Session_Cancels_Pending_When_Disposed()
         {
             Trace.TraceInformation("SessionCancelsPendingWhenDisposed");
-            using (var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build())
+            using (var localCluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
-                var localSession = localCluster.Connect(KeyspaceName);
+                var localSession = localCluster.Connect();
+                localSession.CreateKeyspaceIfNotExists(KeyspaceName, null, false);
+                localSession.ChangeKeyspace(KeyspaceName);
                 localSession.Execute("CREATE TABLE tbl_cancel_pending (id uuid primary key)");
                 var taskList = new Task[500];
                 for (var i = 0; i < taskList.Length; i++)
@@ -80,199 +82,150 @@ namespace Cassandra.IntegrationTests.Core
         [Test]
         public void Session_Keyspace_Does_Not_Exist_On_Connect_Throws()
         {
-            var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build();
-            try
-            {
-                var ex = Assert.Throws<InvalidQueryException>(() => localCluster.Connect("THIS_KEYSPACE_DOES_NOT_EXIST"));
-                Assert.True(ex.Message.ToLower().Contains("keyspace"));
-            }
-            finally
-            {
-                localCluster.Shutdown(1000);
-            }
+            var localCluster = GetNewTemporaryCluster();
+            var ex = Assert.Throws<InvalidQueryException>(() => localCluster.Connect("THIS_KEYSPACE_DOES_NOT_EXIST"));
+            Assert.True(ex.Message.ToLower().Contains("keyspace"));
+
         }
 
         [Test]
         public void Session_Keyspace_Empty_On_Connect()
         {
-            var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build();
-            try
+            var localCluster = GetNewTemporaryCluster();
+            Assert.DoesNotThrow(() =>
             {
-                Assert.DoesNotThrow(() =>
-                {
-                    var localSession = localCluster.Connect("");
-                    localSession.Execute("SELECT * FROM system.local");
-                });
-            }
-            finally
-            {
-                localCluster.Shutdown(1000);
-            }
+                var localSession = localCluster.Connect("");
+                localSession.Execute("SELECT * FROM system.local");
+            });
         }
 
         [Test]
         public void Session_Keyspace_Does_Not_Exist_On_Change_Throws()
         {
-            var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build();
-            try
-            {
-                var localSession = localCluster.Connect();
-                var ex = Assert.Throws<InvalidQueryException>(() => localSession.ChangeKeyspace("THIS_KEYSPACE_DOES_NOT_EXIST_EITHER"));
-                Assert.True(ex.Message.ToLower().Contains("keyspace"));
-            }
-            finally
-            {
-                localCluster.Shutdown(1000);
-            }
+            var localCluster = GetNewTemporaryCluster();
+            var localSession = localCluster.Connect();
+            var ex = Assert.Throws<InvalidQueryException>(() => localSession.ChangeKeyspace("THIS_KEYSPACE_DOES_NOT_EXIST_EITHER"));
+            Assert.True(ex.Message.ToLower().Contains("keyspace"));
+        }
+        
+        [Test]
+        public void ChangeKeyspace_SetsKeyspace()
+        {
+            var localCluster = GetNewTemporaryCluster();
+            var localSession = localCluster.Connect();
+            localSession.CreateKeyspace(KeyspaceName, null, false);
+            localSession = localCluster.Connect();
+            Assert.IsNull(localSession.Keyspace);
+            localSession.ChangeKeyspace(KeyspaceName);
+            Assert.IsNotNull(localSession.Keyspace);
+            Assert.AreEqual(KeyspaceName, localSession.Keyspace);
         }
 
         [Test]
         public void Session_Keyspace_Connect_Case_Sensitive()
         {
-            var localCluster = Cluster.Builder()
-                .AddContactPoint(TestCluster.InitialContactPoint)
-                .Build();
-            try
-            {
-                Assert.Throws<InvalidQueryException>(() => localCluster.Connect("SYSTEM"));
-            }
-            finally
-            {
-                localCluster.Shutdown(1000);
-            }
+            var localCluster = GetNewTemporaryCluster();
+            Assert.Throws<InvalidQueryException>(() => localCluster.Connect("SYSTEM"));
         }
 
         [Test]
         public void Session_Use_Statement_Changes_Keyspace()
         {
-            var localCluster = Cluster.Builder()
-                .AddContactPoint(TestCluster.InitialContactPoint)
-                .Build();
-            try
+            var localCluster = GetNewTemporaryCluster();
+            var localSession = localCluster.Connect();
+            localSession.Execute("USE system");
+            //The session should be using the system keyspace now
+            Assert.DoesNotThrow(() =>
             {
-                var localSession = localCluster.Connect();
-                localSession.Execute("USE system");
-                //The session should be using the system keyspace now
-                Assert.DoesNotThrow(() =>
+                for (var i = 0; i < 5; i++)
                 {
-                    for (var i = 0; i < 5; i++)
-                    {
-                        localSession.Execute("select * from local");
-                    }
-                });
-                Assert.That(localSession.Keyspace, Is.EqualTo("system"));
-            }
-            finally
-            {
-                localCluster.Shutdown(1000);
-            }
+                    localSession.Execute("select * from local");
+                }
+            });
+            Assert.That(localSession.Keyspace, Is.EqualTo("system"));
         }
 
         [Test]
         public void Session_Use_Statement_Changes_Keyspace_Case_Insensitive()
         {
-            var localCluster = Cluster.Builder()
-                .AddContactPoint(TestCluster.InitialContactPoint)
-                .Build();
-            try
+            var localCluster = GetNewTemporaryCluster();
+            var localSession = localCluster.Connect();
+            //The statement is case insensitive by default, as no quotes were specified
+            localSession.Execute("USE SyStEm");
+            //The session should be using the system keyspace now
+            Assert.DoesNotThrow(() =>
             {
-                var localSession = localCluster.Connect();
-                //The statement is case insensitive by default, as no quotes were specified
-                localSession.Execute("USE SyStEm");
-                //The session should be using the system keyspace now
-                Assert.DoesNotThrow(() =>
+                for (var i = 0; i < 5; i++)
                 {
-                    for (var i = 0; i < 5; i++)
-                    {
-                        localSession.Execute("select * from local");
-                    }
-                });
-            }
-            finally
-            {
-                localCluster.Shutdown(1000);
-            }
+                    localSession.Execute("select * from local");
+                }
+            });
         }
 
         [Test]
         public void Session_Keyspace_Create_Case_Sensitive()
         {
-            var localCluster = Cluster.Builder()
-                .AddContactPoint(TestCluster.InitialContactPoint)
-                .Build();
-            try
-            {
-                var localSession = localCluster.Connect();
-                const string ks1 = "UPPER_ks";
-                localSession.CreateKeyspace(ks1);
-                localSession.ChangeKeyspace(ks1);
-                localSession.Execute("CREATE TABLE test1 (k uuid PRIMARY KEY, v text)");
-                TestUtils.WaitForSchemaAgreement(localCluster);
+            var localCluster = GetNewTemporaryCluster();
+            var localSession = localCluster.Connect();
+            const string ks1 = "UPPER_ks";
+            localSession.CreateKeyspace(ks1);
+            localSession.ChangeKeyspace(ks1);
+            localSession.Execute("CREATE TABLE test1 (k uuid PRIMARY KEY, v text)");
+            TestUtils.WaitForSchemaAgreement(localCluster);
 
-                //Execute multiple times a query on the newly created keyspace
-                Assert.DoesNotThrow(() =>
-                {
-                    for (var i = 0; i < 5; i++)
-                    {
-                        localSession.Execute("SELECT * FROM test1");
-                    }
-                });
-            }
-            finally
+            //Execute multiple times a query on the newly created keyspace
+            Assert.DoesNotThrow(() =>
             {
-                localCluster.Shutdown(1000);
-            }
+                for (var i = 0; i < 5; i++)
+                {
+                    localSession.Execute("SELECT * FROM test1");
+                }
+            });
         }
 
         [Test]
         public void Should_Create_The_Right_Amount_Of_Connections()
         {
-            var localCluster1 = Cluster.Builder()
-                .AddContactPoint(TestCluster.InitialContactPoint)
-                .WithPoolingOptions(new PoolingOptions().SetCoreConnectionsPerHost(HostDistance.Local, 3))
-                .Build();
-            Cluster localCluster2 = null;
-            try
+            var localCluster1 = GetNewTemporaryCluster(
+                builder => builder
+                    .WithPoolingOptions(
+                        new PoolingOptions()
+                            .SetCoreConnectionsPerHost(HostDistance.Local, 3)));
+
+            var localSession1 = (IInternalSession)localCluster1.Connect();
+            var hosts1 = localCluster1.AllHosts().ToList();
+            Assert.AreEqual(3, hosts1.Count);
+            //Execute multiple times a query on the newly created keyspace
+            for (var i = 0; i < 12; i++)
             {
-                var localSession1 = (IInternalSession)localCluster1.Connect();
-                var hosts1 = localCluster1.AllHosts().ToList();
-                Assert.AreEqual(2, hosts1.Count);
-                //Execute multiple times a query on the newly created keyspace
-                for (var i = 0; i < 12; i++)
-                {
-                    localSession1.Execute("SELECT * FROM system.local");
-                }
-                Thread.Sleep(2000);
-                var pool11 = localSession1.GetOrCreateConnectionPool(hosts1[0], HostDistance.Local);
-                var pool12 = localSession1.GetOrCreateConnectionPool(hosts1[1], HostDistance.Local);
-                Assert.That(pool11.OpenConnections, Is.EqualTo(3));
-                Assert.That(pool12.OpenConnections, Is.EqualTo(3));
-                
-                localCluster2 = Cluster.Builder()
-                    .AddContactPoint(TestCluster.InitialContactPoint)
-                    .WithPoolingOptions(new PoolingOptions().SetCoreConnectionsPerHost(HostDistance.Local, 1))
-                    .Build();
+                localSession1.Execute("SELECT * FROM system.local");
+            }
+
+            Thread.Sleep(2000);
+            var pool11 = localSession1.GetOrCreateConnectionPool(hosts1[0], HostDistance.Local);
+            var pool12 = localSession1.GetOrCreateConnectionPool(hosts1[1], HostDistance.Local);
+            Assert.That(pool11.OpenConnections, Is.EqualTo(3));
+            Assert.That(pool12.OpenConnections, Is.EqualTo(3));
+
+            using (var localCluster2 = ClusterBuilder()
+                                              .AddContactPoint(TestCluster.InitialContactPoint)
+                                              .WithPoolingOptions(new PoolingOptions().SetCoreConnectionsPerHost(HostDistance.Local, 1))
+                                              .Build())
+            {
                 var localSession2 = (IInternalSession)localCluster2.Connect();
                 var hosts2 = localCluster2.AllHosts().ToList();
-                Assert.AreEqual(2, hosts2.Count);
+                Assert.AreEqual(3, hosts2.Count);
                 //Execute multiple times a query on the newly created keyspace
                 for (var i = 0; i < 6; i++)
                 {
                     localSession2.Execute("SELECT * FROM system.local");
                 }
+
                 Thread.Sleep(2000);
                 var pool21 = localSession2.GetOrCreateConnectionPool(hosts2[0], HostDistance.Local);
                 var pool22 = localSession2.GetOrCreateConnectionPool(hosts2[1], HostDistance.Local);
                 Assert.That(pool21.OpenConnections, Is.EqualTo(1));
                 Assert.That(pool22.OpenConnections, Is.EqualTo(1));
-            }
-            finally
-            {
-                localCluster1.Shutdown(1000);
-                if (localCluster2 != null)
-                {
-                    localCluster2.Shutdown(1000);
-                }
             }
         }
 
@@ -289,10 +242,11 @@ namespace Cassandra.IntegrationTests.Core
                 Assert.Ignore("The test should not run under the Mono runtime");
             }
             var lbp = new DistanceChangingLbp();
-            var builder = Cluster.Builder()
+            var builder = ClusterBuilder()
                 .AddContactPoint(TestCluster.InitialContactPoint)
                 .WithLoadBalancingPolicy(lbp)
-                .WithPoolingOptions(new PoolingOptions().SetCoreConnectionsPerHost(HostDistance.Local, 3));
+                .WithPoolingOptions(new PoolingOptions().SetCoreConnectionsPerHost(HostDistance.Local, 3))
+                .WithReconnectionPolicy(new ConstantReconnectionPolicy(1000));
             var counter = 0;
             using (var localCluster = builder.Build())
             {
@@ -300,7 +254,7 @@ namespace Cassandra.IntegrationTests.Core
                 var remoteHost = localCluster.AllHosts().First(h => TestHelper.GetLastAddressByte(h) == 2);
                 var stopWatch = new Stopwatch();
                 var distanceReset = 0;
-                TestHelper.Invoke(() => Session.Execute("SELECT key FROM system.local"), 10);
+                TestHelper.Invoke(() => localSession.Execute("SELECT key FROM system.local"), 10);
                 var hosts = localCluster.AllHosts().ToArray();
                 var pool1 = localSession.GetOrCreateConnectionPool(hosts[0], HostDistance.Local);
                 var pool2 = localSession.GetOrCreateConnectionPool(hosts[1], HostDistance.Local);
@@ -326,7 +280,9 @@ namespace Cassandra.IntegrationTests.Core
                             stopWatch.Restart();
                         }
                     }
-                    var poolHasBeenReset = wasReset == 1 && pool2.OpenConnections == 3 &&
+                    var poolHasBeenReset = wasReset == 1 && 
+                                           pool1.OpenConnections == 3 &&
+                                           pool2.OpenConnections == 3 &&
                                            stopWatch.ElapsedMilliseconds > 2000;
                     if (poolHasBeenReset)
                     {
@@ -337,8 +293,14 @@ namespace Cassandra.IntegrationTests.Core
                     return localSession.ExecuteAsync(new SimpleStatement("SELECT key FROM system.local"));
                 };
                 await TestHelper.TimesLimit(execute, 200000, 32).ConfigureAwait(false);
-                Assert.That(pool1.OpenConnections, Is.EqualTo(3));
-                Assert.That(pool2.OpenConnections, Is.EqualTo(3));
+                TestHelper.RetryAssert(
+                    () =>
+                    {
+                        Assert.That(pool1.OpenConnections, Is.EqualTo(3), "pool1 != 3");
+                        Assert.That(pool2.OpenConnections, Is.EqualTo(3), "pool2 != 3");
+                    },
+                    500,
+                    20);
             }
         }
 
@@ -385,14 +347,13 @@ namespace Cassandra.IntegrationTests.Core
             }
         }
 
-
         /// <summary>
         /// Checks that having a disposed Session created by the cluster does not affects other sessions
         /// </summary>
         [Test]
         public async Task Session_Disposed_On_Cluster()
         {
-            var cluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build();
+            var cluster = GetNewTemporaryCluster();
             var session1 = cluster.Connect();
             var session2 = cluster.Connect();
             var isDown = 0;
@@ -415,13 +376,14 @@ namespace Cassandra.IntegrationTests.Core
             Assert.AreEqual(0, Volatile.Read(ref isDown));
         }
 
-#if !NETCORE
+#if NETFRAMEWORK
+
         [Test, Apartment(ApartmentState.STA)]
         public void Session_Connect_And_ShutDown_SupportsSTA()
         {
             Assert.DoesNotThrow(() =>
             {
-                using (var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build())
+                using (var localCluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
                 {
                     var localSession = localCluster.Connect();
                     var ps = localSession.Prepare("SELECT * FROM system.local");
@@ -429,6 +391,7 @@ namespace Cassandra.IntegrationTests.Core
                 }
             });
         }
+
 #endif
 
         [Test]
@@ -438,7 +401,7 @@ namespace Cassandra.IntegrationTests.Core
             Diagnostics.CassandraTraceSwitch.Level = TraceLevel.Verbose;
             Assert.DoesNotThrow(() =>
             {
-                using (var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build())
+                using (var localCluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
                 {
                     var localSession = localCluster.Connect("system");
                     var ps = localSession.Prepare("SELECT * FROM local");
@@ -451,29 +414,40 @@ namespace Cassandra.IntegrationTests.Core
         [Test]
         public void Session_Execute_Throws_TimeoutException_When_QueryAbortTimeout_Elapsed()
         {
-            var dummyCluster = Cluster.Builder().AddContactPoint("0.0.0.0").Build();
-            Assert.AreNotEqual(dummyCluster.Configuration.ClientOptions.QueryAbortTimeout, Timeout.Infinite);
-            try
+            using (var dummyCluster = ClusterBuilder().AddContactPoint("0.0.0.0").Build())
             {
-                using (var localCluster = Cluster.Builder()
-                    .AddContactPoint(TestCluster.InitialContactPoint)
-                    //Disable socket read timeout
-                    .WithSocketOptions(new SocketOptions().SetReadTimeoutMillis(0))
-                    //Set abort timeout at a low value
-                    .WithQueryTimeout(1500)
-                    .Build())
-                {
-                    var localSession = localCluster.Connect("system");
-                    localSession.Execute("SELECT * FROM local");
-                    TestCluster.PauseNode(1);
-                    TestCluster.PauseNode(2);
-                    Assert.Throws<TimeoutException>(() => localSession.Execute("SELECT * FROM local"));
-                }
+                Assert.AreNotEqual(dummyCluster.Configuration.ClientOptions.QueryAbortTimeout, Timeout.Infinite);
             }
-            finally
+
+            using (var localCluster = ClusterBuilder()
+                                             .AddContactPoint(TestCluster.InitialContactPoint)
+                                             //Disable socket read timeout
+                                             .WithSocketOptions(new SocketOptions().SetReadTimeoutMillis(0))
+                                             //Set abort timeout at a low value
+                                             .WithQueryTimeout(1500)
+                                             .Build())
             {
-                TestCluster.ResumeNode(1);
-                TestCluster.ResumeNode(2);
+                var t = Task.Factory.StartNew(() =>
+                    {
+                        try
+                        {
+                            var localSession = localCluster.Connect("system");
+                            localSession.Execute("SELECT * FROM local");
+                            TestCluster.PauseNode(1);
+                            TestCluster.PauseNode(2);
+                            TestCluster.PauseNode(3);
+                            Assert.Throws<TimeoutException>(() => localSession.Execute("SELECT * FROM local"));
+                        }
+                        finally
+                        {
+                            TestCluster.ResumeNode(1);
+                            TestCluster.ResumeNode(2);
+                            TestCluster.ResumeNode(3);
+                        }
+                    },
+                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach);
+
+                t.Wait(5 * 60 * 1000);
             }
         }
 
@@ -491,21 +465,54 @@ namespace Cassandra.IntegrationTests.Core
         [Test]
         public void Empty_RowSet_Test()
         {
-            var localCluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build();
-            var localSession = localCluster.Connect(KeyspaceName);
+            var localCluster = GetNewTemporaryCluster();
+            var localSession = localCluster.Connect();
+            localSession.CreateKeyspaceIfNotExists(KeyspaceName, null, false);
+            localSession.ChangeKeyspace(KeyspaceName);
             localSession.Execute("CREATE TABLE test (k int PRIMARY KEY, v int)");
 
-            try
+            var rowSet = localSession.Execute("INSERT INTO test (k, v) VALUES (0, 0)");
+            Assert.True(rowSet.IsExhausted());
+            Assert.True(rowSet.IsFullyFetched);
+            Assert.AreEqual(0, rowSet.Count());
+            Assert.AreEqual(0, rowSet.GetAvailableWithoutFetching());
+        }
+
+        [Test]
+        public async Task Cluster_ConnectAsync_Should_Create_A_Session_With_Keyspace_Set()
+        {
+            const string query = "SELECT * FROM local";
+            // Using a default keyspace
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint)
+                                           .WithDefaultKeyspace("system").Build())
             {
-                var rowSet = localSession.Execute("INSERT INTO test (k, v) VALUES (0, 0)");
-                Assert.True(rowSet.IsExhausted());
-                Assert.True(rowSet.IsFullyFetched);
-                Assert.AreEqual(0, rowSet.Count());
-                Assert.AreEqual(0, rowSet.GetAvailableWithoutFetching());
+                ISession session = await cluster.ConnectAsync().ConfigureAwait(false);
+                Assert.DoesNotThrowAsync(async () =>
+                    await session.ExecuteAsync(new SimpleStatement(query)).ConfigureAwait(false));
+                Assert.DoesNotThrowAsync(async () =>
+                    await session.ExecuteAsync(new SimpleStatement(query)).ConfigureAwait(false));
+                await cluster.ShutdownAsync().ConfigureAwait(false);
             }
-            finally
+
+            // Setting the keyspace on ConnectAsync
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
-                localCluster.Shutdown(1000);
+                ISession session = await cluster.ConnectAsync("system").ConfigureAwait(false);
+                Assert.DoesNotThrowAsync(async () =>
+                    await session.ExecuteAsync(new SimpleStatement(query)).ConfigureAwait(false));
+                Assert.DoesNotThrowAsync(async () =>
+                    await session.ExecuteAsync(new SimpleStatement(query)).ConfigureAwait(false));
+                await cluster.ShutdownAsync().ConfigureAwait(false);
+            }
+
+            // Without setting the keyspace
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
+            {
+                ISession session = await cluster.ConnectAsync().ConfigureAwait(false);
+                Assert.DoesNotThrowAsync(async () =>
+                    await session.ExecuteAsync(new SimpleStatement("SELECT * FROM system.local"))
+                                 .ConfigureAwait(false));
+                await cluster.ShutdownAsync().ConfigureAwait(false);
             }
         }
     }

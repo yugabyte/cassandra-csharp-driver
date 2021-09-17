@@ -1,9 +1,24 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 
 namespace Cassandra.Serialization
 {
@@ -33,7 +48,7 @@ namespace Cassandra.Serialization
                 {
                     continue;
                 }
-                tupleValues[i] = DeserializeChild(buffer, offset, itemLength, element.TypeCode, element.TypeInfo);
+                tupleValues[i] = DeserializeChild(protocolVersion, buffer, offset, itemLength, element.TypeCode, element.TypeInfo);
                 offset += itemLength;
             }
 
@@ -43,35 +58,48 @@ namespace Cassandra.Serialization
         internal Type GetClrType(IColumnInfo typeInfo)
         {
             var tupleInfo = (TupleColumnInfo)typeInfo;
-            Type genericTupleType;
-            switch (tupleInfo.Elements.Count)
+            var genericTupleType = GetGenericTupleType(tupleInfo);
+            if (genericTupleType == null)
             {
-                case 1:
-                    genericTupleType = typeof(Tuple<>);
-                    break;
-                case 2:
-                    genericTupleType = typeof(Tuple<,>);
-                    break;
-                case 3:
-                    genericTupleType = typeof(Tuple<,,>);
-                    break;
-                case 4:
-                    genericTupleType = typeof(Tuple<,,,>);
-                    break;
-                case 5:
-                    genericTupleType = typeof(Tuple<,,,,>);
-                    break;
-                case 6:
-                    genericTupleType = typeof(Tuple<,,,,,>);
-                    break;
-                case 7:
-                    genericTupleType = typeof(Tuple<,,,,,,>);
-                    break;
-                default:
-                    return typeof(byte[]);
+                return typeof(byte[]);
             }
             return genericTupleType.MakeGenericType(
                 tupleInfo.Elements.Select(s => GetClrType(s.TypeCode, s.TypeInfo)).ToArray());
+        }
+        
+        internal Type GetClrTypeForGraph(IColumnInfo typeInfo)
+        {
+            var tupleInfo = (TupleColumnInfo)typeInfo;
+            var genericTupleType = GetGenericTupleType(tupleInfo);
+            if (genericTupleType == null)
+            {
+                return typeof(byte[]);
+            }
+            return genericTupleType.MakeGenericType(
+                tupleInfo.Elements.Select(s => GetClrTypeForGraph(s.TypeCode, s.TypeInfo)).ToArray());
+        }
+
+        private Type GetGenericTupleType(TupleColumnInfo tupleInfo)
+        {
+            switch (tupleInfo.Elements.Count)
+            {
+                case 1:
+                    return typeof(Tuple<>);
+                case 2:
+                    return typeof(Tuple<,>);
+                case 3:
+                    return typeof(Tuple<,,>);
+                case 4:
+                    return typeof(Tuple<,,,>);
+                case 5:
+                    return typeof(Tuple<,,,,>);
+                case 6:
+                    return typeof(Tuple<,,,,,>);
+                case 7:
+                    return typeof(Tuple<,,,,,,>);
+                default:
+                    return null;
+            }
         }
 
         public override byte[] Serialize(ushort protocolVersion, IStructuralEquatable value)
@@ -85,7 +113,7 @@ namespace Cassandra.Serialization
                 var prop = tupleType.GetTypeInfo().GetProperty("Item" + i);
                 if (prop != null)
                 {
-                    var buffer = SerializeChild(prop.GetValue(value, null));
+                    var buffer = SerializeChild(protocolVersion, prop.GetValue(value, null));
                     bufferList.Add(buffer);
                     if (buffer != null)
                     {

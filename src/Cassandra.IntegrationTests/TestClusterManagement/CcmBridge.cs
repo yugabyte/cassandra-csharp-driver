@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,10 +16,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Text;
-using System.Linq;
+using System.Net.Sockets;
 using System.Threading;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.Tests;
@@ -29,47 +27,92 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
     public class CcmBridge : IDisposable
     {
         public DirectoryInfo CcmDir { get; private set; }
-        public const int DefaultCmdTimeout = 90 * 1000;
-        public const int StartCmdTimeout = 150 * 1000;
         public string Name { get; private set; }
+        public string Version { get; private set; }
         public string IpPrefix { get; private set; }
+        public ICcmProcessExecuter CcmProcessExecuter { get; set; }
+        private readonly string _dseInstallPath;
 
-        public CcmBridge(string name, string ipPrefix)
+        public CcmBridge(string name, string ipPrefix, string dsePath, string version, ICcmProcessExecuter executor)
         {
             Name = name;
             IpPrefix = ipPrefix;
             CcmDir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()));
+            CcmProcessExecuter = executor;
+            _dseInstallPath = dsePath;
+            Version = version;
         }
 
         public void Dispose()
         {
         }
 
-        public void Create(string version, bool useSsl)
+        public void Create(bool useSsl)
         {
             var sslParams = "";
             if (useSsl)
             {
-                var sslPath = Path.Combine(TestHelper.GetHomePath(), "ssl");
-                if (!File.Exists(Path.Combine(sslPath, "keystore.jks")))
+                var sslPath = Environment.GetEnvironmentVariable("CCM_SSL_PATH");
+                if (sslPath == null)
                 {
-                    throw new Exception(string.Format("In order to use SSL with CCM you must provide have the keystore.jks and cassandra.crt files located in your {0} folder", sslPath));
+                    sslPath = Path.Combine(TestHelper.GetHomePath(), "ssl");
+                    if (!File.Exists(Path.Combine(sslPath, "keystore.jks")))
+                    {
+                        throw new Exception(string.Format("In order to use SSL with CCM you must provide have the keystore.jks and cassandra.crt files located in your {0} folder", sslPath));
+                    }
                 }
                 sslParams = "--ssl " + sslPath;
             }
-            ExecuteCcm(string.Format("create {0} -i {1} -v {2} {3}", Name, IpPrefix, version, sslParams));
+
+            if (string.IsNullOrEmpty(_dseInstallPath))
+            {
+                if (TestClusterManager.IsDse)
+                {
+                    ExecuteCcm(string.Format(
+                        "create {0} --dse -v {1} {2}", Name, Version, sslParams));
+                }
+                else
+                {
+                    ExecuteCcm(string.Format(
+                        "create {0} -v {1} {2}", Name, Version, sslParams));
+                }
+            }
+            else
+            {
+                ExecuteCcm(string.Format(
+                    "create {0} --install-dir={1} {2}", Name, _dseInstallPath, sslParams));
+            }
         }
 
-        public void Start(string[] jvmArgs)
+        protected string GetHomePath()
+        {
+            var home = Environment.GetEnvironmentVariable("USERPROFILE");
+            if (!string.IsNullOrEmpty(home))
+            {
+                return home;
+            }
+            home = Environment.GetEnvironmentVariable("HOME");
+            if (string.IsNullOrEmpty(home))
+            {
+                throw new NotSupportedException("HOME or USERPROFILE are not defined");
+            }
+            return home;
+        }
+
+        public ProcessOutput Start(string[] jvmArgs)
         {
             var parameters = new List<string>
             {
                 "start",
                 "--wait-for-binary-proto"
             };
-            if (TestUtils.IsWin)
+            if (TestUtils.IsWin && CcmProcessExecuter is LocalCcmProcessExecuter)
             {
                 parameters.Add("--quiet-windows");
+            }
+            if (CcmProcessExecuter is WslCcmProcessExecuter)
+            {
+                parameters.Add("--root");
             }
             if (jvmArgs != null)
             {
@@ -79,7 +122,79 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
                     parameters.Add(arg);
                 }
             }
-            ExecuteCcm(string.Join(" ", parameters), StartCmdTimeout);
+
+            if (CcmProcessExecuter is WslCcmProcessExecuter)
+            {
+                return ExecuteCcm(string.Join(" ", parameters), false);
+            }
+            else
+            {
+                return ExecuteCcm(string.Join(" ", parameters));
+            }
+        }
+
+        public ProcessOutput Start(int n, string additionalArgs = null, string[] jvmArgs = null)
+        {
+            string quietWindows = null;
+            string runAsRoot = null;
+            if (TestUtils.IsWin && CcmProcessExecuter is LocalCcmProcessExecuter)
+            {
+                quietWindows = "--quiet-windows";
+            }
+
+            if (CcmProcessExecuter is WslCcmProcessExecuter)
+            {
+                runAsRoot = "--root";
+            }
+            
+            var jvmArgsParameters = new List<string>
+            {
+                "start",
+                "--wait-for-binary-proto"
+            };
+            if (jvmArgs != null)
+            {
+                foreach (var arg in jvmArgs)
+                {
+                    jvmArgsParameters.Add("--jvm_arg");
+                    jvmArgsParameters.Add(arg);
+                }
+            }
+
+            var jvmArgsStr = string.Join(" ", jvmArgsParameters);
+
+            if (CcmProcessExecuter is WslCcmProcessExecuter)
+            {
+                return ExecuteCcm($"node{n} start --wait-for-binary-proto {additionalArgs} {quietWindows} {runAsRoot} {jvmArgsStr}", false);
+            }
+            else
+            {
+                return ExecuteCcm($"node{n} start --wait-for-binary-proto {additionalArgs} {quietWindows} {runAsRoot} {jvmArgsStr}");
+            }
+        }
+
+        public void CheckNativePortOpen(ProcessOutput output, string ip)
+        {
+            using (var ccmConnection = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                using (var cts = new CancellationTokenSource(5 * 60 * 1000))
+                {
+                    while (!cts.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            ccmConnection.Connect(ip, 9042);
+                            return;
+                        }
+                        catch
+                        {
+                            Thread.Sleep(5000);
+                        }
+                    }
+                }
+            }
+
+            throw new TestInfrastructureException("Native Port check timed out. Output: " + Environment.NewLine + output.ToString());
         }
 
         public void Populate(int dc1NodeLength, int dc2NodeLength, bool useVNodes)
@@ -88,7 +203,9 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
             {
                 "populate",
                 "-n",
-                dc1NodeLength + (dc2NodeLength > 0 ? ":" + dc2NodeLength : null)
+                dc1NodeLength + (dc2NodeLength > 0 ? ":" + dc2NodeLength : null),
+                "-i",
+                IpPrefix
             };
             if (useVNodes)
             {
@@ -100,7 +217,7 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
         public void SwitchToThis()
         {
             string switchCmd = "switch " + Name;
-            ExecuteCcm(switchCmd, DefaultCmdTimeout, false);
+            ExecuteCcm(switchCmd, false);
         }
 
         public void List()
@@ -116,16 +233,6 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
         public void StopForce()
         {
             ExecuteCcm("stop --not-gently");
-        }
-
-        public void Start(int n, string additionalArgs = null)
-        {
-            string quietWindows = null;
-            if (TestUtils.IsWin)
-            {
-                quietWindows = "--quiet-windows";
-            }
-            ExecuteCcm(string.Format("node{0} start --wait-for-binary-proto {1} {2}", n, additionalArgs, quietWindows));
         }
 
         public void Stop(int n)
@@ -148,15 +255,27 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
             ExecuteCcm(string.Format("node{0} remove", nodeId));
         }
 
-        public void BootstrapNode(int n)
+        public void BootstrapNode(int n, bool start = true)
         {
-            BootstrapNode(n, null);
+            BootstrapNode(n, null, start);
         }
 
-        public void BootstrapNode(int n, string dc)
+        public ProcessOutput BootstrapNode(int n, string dc, bool start = true)
         {
-            ExecuteCcm(string.Format("add node{0} -i {1}{2} -j {3} -b -s {4}", n, IpPrefix, n, 7000 + 100 * n, dc != null ? "-d " + dc : null));
-            Start(n);
+            var cmd = "add node{0} -i {1}{2} -j {3} -b -s {4}";
+            if (TestClusterManager.IsDse)
+            {
+                cmd += " --dse";
+            }
+
+            var output = ExecuteCcm(string.Format(cmd, n, IpPrefix, n, 7000 + 100 * n, dc != null ? "-d " + dc : null));
+
+            if (start)
+            {
+                return Start(n);
+            }
+
+            return output;
         }
 
         public void DecommissionNode(int n)
@@ -164,110 +283,68 @@ namespace Cassandra.IntegrationTests.TestClusterManagement
             ExecuteCcm(string.Format("node{0} decommission", n));
         }
 
-        public static ProcessOutput ExecuteCcm(string args, int timeout = DefaultCmdTimeout, bool throwOnProcessError = true)
+        public ProcessOutput ExecuteCcm(string args, bool throwOnProcessError = true)
         {
-            var executable = "/usr/local/bin/ccm";
-            if (TestUtils.IsWin)
-            {
-                executable = "cmd.exe";
-                args = "/c ccm " + args;
-            }
-            Trace.TraceInformation(executable + " " + args);
-            var output = ExecuteProcess(executable, args, timeout);
-            if (throwOnProcessError)
-            {
-                ValidateOutput(output);
-            }
-            return output;
+            return CcmProcessExecuter.ExecuteCcm(args, throwOnProcessError);
         }
 
-        private static void ValidateOutput(ProcessOutput output)
+        public void UpdateConfig(params string[] configs)
         {
-            if (output.ExitCode != 0)
+            if (configs == null)
             {
-                throw new TestInfrastructureException($"Process exited in error {output}");
+                return;
             }
+            foreach (var c in configs)
+            {
+                ExecuteCcm(string.Format("updateconf \"{0}\"", c));
+            }
+        }
+
+        public void UpdateDseConfig(params string[] configs)
+        {
+            if (!TestClusterManager.IsDse)
+            {
+                throw new InvalidOperationException("Cant update dse config on an oss cluster.");
+            }
+
+            if (configs == null)
+            {
+                return;
+            }
+            foreach (var c in configs)
+            {
+                ExecuteCcm(string.Format("updatedseconf \"{0}\"", c));
+            }
+        }
+
+        public void SetNodeWorkloads(int nodeId, string[] workloads)
+        {
+            if (!TestClusterManager.IsDse)
+            {
+                throw new InvalidOperationException("Cant set workloads on an oss cluster.");
+            }
+
+            ExecuteCcm(string.Format("node{0} setworkload {1}", nodeId, string.Join(",", workloads)));
         }
 
         /// <summary>
-        /// Spawns a new process (platform independent)
+        /// Sets the workloads for all nodes.
         /// </summary>
-        public static ProcessOutput ExecuteProcess(string processName, string args, int timeout = DefaultCmdTimeout)
+        public void SetWorkloads(int nodeLength, string[] workloads)
         {
-            var output = new ProcessOutput();
-            using (var process = new Process())
+            if (!TestClusterManager.IsDse)
             {
-                process.StartInfo.FileName = processName;
-                process.StartInfo.Arguments = args;
-                process.StartInfo.RedirectStandardOutput = true;
-                process.StartInfo.RedirectStandardError = true;
-                //Hide the python window if possible
-                process.StartInfo.UseShellExecute = false;
-                process.StartInfo.CreateNoWindow = true;
-#if !NETCORE
-                process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-#endif
-
-                using (var outputWaitHandle = new AutoResetEvent(false))
-                using (var errorWaitHandle = new AutoResetEvent(false))
-                {
-                    process.OutputDataReceived += (sender, e) =>
-                    {
-                        if (e.Data == null)
-                        {
-                            try
-                            {
-                                outputWaitHandle.Set();
-                            }
-                            catch
-                            {
-                                //probably is already disposed
-                            }
-                        }
-                        else
-                        {
-                            output.OutputText.AppendLine(e.Data);
-                        }
-                    };
-                    process.ErrorDataReceived += (sender, e) =>
-                    {
-                        if (e.Data == null)
-                        {
-                            try
-                            {
-                                errorWaitHandle.Set();
-                            }
-                            catch
-                            {
-                                //probably is already disposed
-                            }
-                        }
-                        else
-                        {
-                            output.OutputText.AppendLine(e.Data);
-                        }
-                    };
-
-                    process.Start();
-
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-
-                    if (process.WaitForExit(timeout) &&
-                        outputWaitHandle.WaitOne(timeout) &&
-                        errorWaitHandle.WaitOne(timeout))
-                    {
-                        // Process completed.
-                        output.ExitCode = process.ExitCode;
-                    }
-                    else
-                    {
-                        // Timed out.
-                        output.ExitCode = -1;
-                    }
-                }
+                throw new InvalidOperationException("Cant set workloads on an oss cluster.");
             }
-            return output;
+
+            if (workloads == null || workloads.Length == 0)
+            {
+                return;
+            }
+            for (var nodeId = 1; nodeId <= nodeLength; nodeId++)
+            {
+                SetNodeWorkloads(nodeId, workloads);
+            }
         }
     }
 }
