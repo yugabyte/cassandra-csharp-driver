@@ -14,7 +14,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <AssemblyName>YugaByte.Cassandra</AssemblyName>
     <Product>YugaByte C# Driver for YugaByte DB</Product>
-    <AssemblyOriginatorKeyFile>../../build/datastax.snk</AssemblyOriginatorKeyFile>
+    <AssemblyOriginatorKeyFile>../../../yugabyte.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
     <PackageId>YugaByteCassandraCSharpDriver</PackageId>
     <Title>YugaByte C# Driver for YugaByte DB</Title>
