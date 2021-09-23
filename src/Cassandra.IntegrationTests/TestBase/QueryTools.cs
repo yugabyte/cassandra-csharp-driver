@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ namespace Cassandra.IntegrationTests.TestBase
             var ret = session.Execute(query, consistency);
             if (expectedValues != null)
             {
-                valueComparator(ret, expectedValues);
+                QueryTools.valueComparator(ret, expectedValues);
             }
         }
 

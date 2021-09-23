@@ -1,3 +1,19 @@
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -24,8 +40,7 @@ namespace Cassandra.Mapping
         /// <param name="predefinedTypeDefinitions">Explicitly declared type definitions</param>
         public PocoDataFactory(LookupKeyedCollection<Type, ITypeDefinition> predefinedTypeDefinitions)
         {
-            if (predefinedTypeDefinitions == null) throw new ArgumentNullException("predefinedTypeDefinitions");
-            _predefinedTypeDefinitions = predefinedTypeDefinitions;
+            _predefinedTypeDefinitions = predefinedTypeDefinitions ?? throw new ArgumentNullException("predefinedTypeDefinitions");
             _cache = new ConcurrentDictionary<Type, PocoData>();
         }
 
@@ -51,8 +66,7 @@ namespace Cassandra.Mapping
         private PocoData CreatePocoData(Type pocoType)
         {
             // Try to get mapping from predefined collection, otherwise fallback to using attributes
-            ITypeDefinition typeDefinition;
-            if (_predefinedTypeDefinitions.TryGetItem(pocoType, out typeDefinition) == false)
+            if (!_predefinedTypeDefinitions.TryGetItem(pocoType, out ITypeDefinition typeDefinition))
             {
                 typeDefinition = new AttributeBasedTypeDefinition(pocoType);
             }
@@ -70,7 +84,8 @@ namespace Cassandra.Mapping
             // Get column definitions for all mappable fields and properties
             IEnumerable<IColumnDefinition> fieldsAndProperties = GetMappableFields(typeDefinition.PocoType)
                 .Select(typeDefinition.GetColumnDefinition)
-                .Union(GetMappableProperties(typeDefinition.PocoType).Select(typeDefinition.GetColumnDefinition));
+                .Union(GetMappableProperties(typeDefinition.PocoType).Select(typeDefinition.GetColumnDefinition))
+                .OrderBy(col => col?.ColumnName ?? col?.MemberInfo.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
             // If explicit columns, only get column definitions that are explicitly defined, otherwise get all columns that aren't marked as Ignored
             IEnumerable<IColumnDefinition> columnDefinitions = typeDefinition.ExplicitColumns

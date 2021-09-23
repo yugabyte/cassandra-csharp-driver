@@ -1,8 +1,23 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace Cassandra.Collections
 {
@@ -10,32 +25,29 @@ namespace Cassandra.Collections
     /// A thread-safe variant of Dictionary{TKey, TValue} in which all mutative operations (Add and Remove) are implemented by making a copy of the underlying dictionary,
     /// intended to provide safe enumeration of its items.
     /// </summary>
-    internal class CopyOnWriteDictionary<TKey, TValue> : IDictionary<TKey, TValue>
+    internal class CopyOnWriteDictionary<TKey, TValue> : IThreadSafeDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
     {
         private static readonly Dictionary<TKey, TValue> Empty = new Dictionary<TKey, TValue>();
         private volatile Dictionary<TKey, TValue> _map;
         private readonly object _writeLock = new object();
 
-        public int Count
-        {
-            get { return _map.Count; }
-        }
+        public int Count => _map.Count;
 
-        public bool IsReadOnly
-        {
-            get { return false; }
-        }
+        public bool IsReadOnly => false;
 
-        public ICollection<TKey> Keys
-        {
-            get { return _map.Keys; }
-        }
+        public ICollection<TKey> Keys => _map.Keys;
 
-        public ICollection<TValue> Values
-        {
-            get { return _map.Values; }
-        }
+        IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
 
+        IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
+
+        public ICollection<TValue> Values => _map.Values;
+
+        public CopyOnWriteDictionary(IDictionary<TKey, TValue> toCopy)
+        {
+            _map = new Dictionary<TKey, TValue>(toCopy);
+        }
+        
         public CopyOnWriteDictionary()
         {
             //Start with an instance without nodes
@@ -69,6 +81,11 @@ namespace Cassandra.Collections
 
         public bool ContainsKey(TKey key)
         {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             return _map.ContainsKey(key);
         }
 
@@ -83,16 +100,25 @@ namespace Cassandra.Collections
         /// </returns>
         public TValue GetOrAdd(TKey key, TValue value)
         {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
+            // optimistic scenario: return before lock
+            if (_map.TryGetValue(key, out var outPutValue))
+            {
+                return outPutValue;
+            }
+
             lock (_writeLock)
             {
-                TValue existingValue;
-                if (_map.TryGetValue(key, out existingValue))
+                if (_map.TryGetValue(key, out TValue existingValue))
                 {
                     return existingValue;
                 }
-                var newMap = new Dictionary<TKey, TValue>(_map);
-                newMap.Add(key, value);
-                _map = newMap;
+
+                CloneMapAndAddUnsafe(key, value);
                 return value;
             }
         }
@@ -105,11 +131,14 @@ namespace Cassandra.Collections
         /// </remarks>
         public void Add(TKey key, TValue value)
         {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             lock (_writeLock)
             {
-                var newMap = new Dictionary<TKey, TValue>(_map);
-                newMap[key] = value;
-                _map = newMap;
+                CloneMapAndAddUnsafe(key, value);
             }
         }
 
@@ -129,6 +158,11 @@ namespace Cassandra.Collections
         /// </summary>
         public bool Remove(TKey key)
         {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             lock (_writeLock)
             {
                 if (!_map.ContainsKey(key))
@@ -136,9 +170,8 @@ namespace Cassandra.Collections
                     //Do not modify the underlying map
                     return false;
                 }
-                var newMap = new Dictionary<TKey, TValue>(_map);
-                _map = newMap;
-                return newMap.Remove(key);
+
+                return CloneMapAndRemoveUnsafe(key);
             }
         }
 
@@ -155,6 +188,11 @@ namespace Cassandra.Collections
         /// </summary>
         public bool TryRemove(TKey key, out TValue value)
         {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             lock (_writeLock)
             {
                 if (!_map.TryGetValue(key, out value))
@@ -162,22 +200,149 @@ namespace Cassandra.Collections
                     //Do not modify the underlying map
                     return false;
                 }
-                var newMap = new Dictionary<TKey, TValue>(_map);
-                _map = newMap;
-                newMap.Remove(key);
-                return true;
+
+                return CloneMapAndRemoveUnsafe(key);
             }
+        }
+
+        public TValue GetOrAdd(TKey key, Func<TKey, TValue> valueFactory)
+        {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
+            if (valueFactory == null)
+            {
+                throw new ArgumentNullException(nameof(valueFactory));
+            }
+
+            // optimistic scenario: return before lock
+            if (_map.TryGetValue(key, out var outputValue))
+            {
+                return outputValue;
+            }
+
+            lock (_writeLock)
+            {
+                if (_map.TryGetValue(key, out TValue existingValue))
+                {
+                    return existingValue;
+                }
+                var value = valueFactory(key);
+                CloneMapAndAddUnsafe(key, value);
+                return value;
+            }
+        }
+
+        public TValue AddOrUpdate(
+            TKey key, Func<TKey, TValue> addValueFactory, Func<TKey, TValue, TValue> updateValueFactory)
+        {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
+            if (addValueFactory == null)
+            {
+                throw new ArgumentNullException(nameof(addValueFactory));
+            }
+
+            if (updateValueFactory == null)
+            {
+                throw new ArgumentNullException(nameof(updateValueFactory));
+            }
+
+            lock (_writeLock)
+            {
+                TValue newValue;
+                if (TryGetValue(key, out var existingValue))
+                {
+                    newValue = updateValueFactory(key, existingValue);
+                    CloneMapAndUpdateUnsafe(key, newValue);
+                    return newValue;
+                }
+
+                newValue = addValueFactory(key);
+                CloneMapAndAddUnsafe(key, newValue);
+                return newValue;
+            }
+        }
+
+        /// <inheritdoc />
+        public TValue CompareAndUpdate(
+            TKey key, Func<TKey, TValue, bool> compareFunc, Func<TKey, TValue, TValue> updateValueFactory)
+        {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+            
+            if (updateValueFactory == null)
+            {
+                throw new ArgumentNullException(nameof(updateValueFactory));
+            }
+
+            lock (_writeLock)
+            {
+                if (!TryGetValue(key, out var existingValue))
+                {
+                    throw new InvalidOperationException("Could not retrieve an item with that key.");
+                }
+
+                if (!compareFunc(key, existingValue))
+                {
+                    return existingValue;
+                }
+
+                var newValue = updateValueFactory(key, existingValue);
+                CloneMapAndUpdateUnsafe(key, newValue);
+                return newValue;
+            }
+        }
+
+        private void CloneMapAndAddUnsafe(TKey key, TValue value)
+        {
+            var newMap = new Dictionary<TKey, TValue>(_map)
+            {
+                { key, value }
+            };
+
+            _map = newMap;
+        }
+
+        private void CloneMapAndUpdateUnsafe(TKey key, TValue value)
+        {
+            var newMap = new Dictionary<TKey, TValue>(_map)
+            {
+                [key] = value
+            };
+
+            _map = newMap;
+        }
+        
+        private bool CloneMapAndRemoveUnsafe(TKey key)
+        {
+            var newMap = new Dictionary<TKey, TValue>(_map);
+            var success = newMap.Remove(key);
+            _map = newMap;
+            return success;
         }
 
         public bool TryGetValue(TKey key, out TValue value)
         {
+            if (key == null)
+            {
+                throw new ArgumentNullException(nameof(key));
+            }
+
             return _map.TryGetValue(key, out value);
         }
 
         public TValue this[TKey key]
         {
-            get { return _map[key]; }
-            set { Add(key, value); }
+            get => _map[key];
+            set => Add(key, value);
         }
     }
 }

@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -25,6 +25,12 @@ namespace Cassandra.Requests
         /// The paging state for the request
         /// </summary>
         byte[] PagingState { get; set; }
+
+        /// <summary>
+        /// Whether the skip_metadata flag is set for this request.
+        /// </summary>
+        bool SkipMetadata { get; }
+
         /// <summary>
         /// Method used by the batch to build each individual request
         /// </summary>

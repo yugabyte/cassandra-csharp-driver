@@ -1,12 +1,246 @@
 # ChangeLog - DataStax C# Driver
 
-## 3.7.1
+## 3.16.3
 
-2019-06-01
+2021-03-12
+
+### Improvements
+
+*   [[CSHARP-949](https://datastax-oss.atlassian.net/browse/CSHARP-949)] - Expose UdtMap.AddPropertyMapping(PropertyInfo, string)
+
+### Bug fixes
+
+*   [[CSHARP-950](https://datastax-oss.atlassian.net/browse/CSHARP-950)] - AuthenticationException when connecting to Astra serverless
+
+## 3.16.2
+
+2021-01-20
+
+### Bug fixes
+
+*   [[CSHARP-947](https://datastax-oss.atlassian.net/browse/CSHARP-947)] - The driver should read broadcast_address instead of peer for system.local queries
+
+## 3.16.1
+
+2020-10-22
+
+### Improvements
+
+*   [[CSHARP-942](https://datastax-oss.atlassian.net/browse/CSHARP-942)] - Log control connection init failures
+
+### Bug fixes
+
+*   [[CSHARP-943](https://datastax-oss.atlassian.net/browse/CSHARP-943)] - Cluster.Connect() throws "ArgumentException 'The source argument contains duplicate keys.'"
+
+## 3.16.0
+
+2020-09-10
 
 ### Features
 
-- Skip rebulding token map when it is not required by balancing policy
+*   [[CSHARP-750](https://datastax-oss.atlassian.net/browse/CSHARP-750)] - Initial DataStax Graph (DSE 6.8) support on the unified C# driver
+
+### Improvements
+
+*   [[CSHARP-898](https://datastax-oss.atlassian.net/browse/CSHARP-898)] - Replace lz4net with K4os.Compression.LZ4 on net452
+*   [[CSHARP-925](https://datastax-oss.atlassian.net/browse/CSHARP-925)] - Ignore credentials in secure connect bundle [DataStax Astra]
+*   [[CSHARP-934](https://datastax-oss.atlassian.net/browse/CSHARP-934)] - Optimize TimeoutItem cleanup
+
+### Bug fixes
+
+*   [[CSHARP-902](https://datastax-oss.atlassian.net/browse/CSHARP-902)] - ProtocolEventDebouncer calls refresh keyspace for the same keyspace multiple times
+*   [[CSHARP-906](https://datastax-oss.atlassian.net/browse/CSHARP-906)] - C# driver doesn't support DSE transitional authentication
+*   [[CSHARP-907](https://datastax-oss.atlassian.net/browse/CSHARP-907)] - Insights CPU info not available in netcoreapp3.1 on Windows
+*   [[CSHARP-908](https://datastax-oss.atlassian.net/browse/CSHARP-908)] - DateRangeSerializer precision issue
+*   [[CSHARP-913](https://datastax-oss.atlassian.net/browse/CSHARP-913)] - Misleading log message: "contact point resolved to multiple addresses"
+
+### Documentation
+
+*   [[CSHARP-927](https://datastax-oss.atlassian.net/browse/CSHARP-927)] - Document Duration type
+
+## 3.15.1
+
+2020-07-27
+
+### Improvements
+
+*   [[CSHARP-926](https://datastax-oss.atlassian.net/browse/CSHARP-926)] - Remove explicit System.Net.Http reference
+
+## 3.15.0
+
+2020-05-12
+
+### Features
+
+*   [[CSHARP-871](https://datastax-oss.atlassian.net/browse/CSHARP-871)] - Add support for system.peers_v2
+*   [[CSHARP-886](https://datastax-oss.atlassian.net/browse/CSHARP-886)] - Add beta version native protocol flag and ensure we have test coverage of v5
+*   [[CSHARP-887](https://datastax-oss.atlassian.net/browse/CSHARP-887)] - Transient Replication Support
+*   [[CSHARP-895](https://datastax-oss.atlassian.net/browse/CSHARP-895)] - Add Table.CreateAsync and Table.CreateIfNotExistsAsync
+*   [[CSHARP-719](https://datastax-oss.atlassian.net/browse/CSHARP-719)] - Support LZ4 compression in .NET Core
+
+### Improvements
+
+*   [[CSHARP-664](https://datastax-oss.atlassian.net/browse/CSHARP-664)] - Use prepared statement result_metadata for execute row responses
+
+### Bug fixes
+
+*   [[CSHARP-659](https://datastax-oss.atlassian.net/browse/CSHARP-659)] - Query trace retrieval fails when started_at is null
+*   [[CSHARP-884](https://datastax-oss.atlassian.net/browse/CSHARP-884)] - Race condition in the ControlConnection Dispose method can leak connections
+*   [[CSHARP-894](https://datastax-oss.atlassian.net/browse/CSHARP-894)] - Batch Statements cause a warning on TokenMap due to null keyspace
+*   [[CSHARP-896](https://datastax-oss.atlassian.net/browse/CSHARP-896)] - Invalid deserialization when paging a rowset and a schema change happens
+
+### Documentation
+
+*   [[CSHARP-812](https://datastax-oss.atlassian.net/browse/CSHARP-812)] - Add documentation about batch support for LINQ and Mapper
+*   [[CSHARP-833](https://datastax-oss.atlassian.net/browse/CSHARP-833)] - KeyspaceMetadata.ExportAsString API docs incorrectly state that it exports the table creation statements
+*   [[CSHARP-881](https://datastax-oss.atlassian.net/browse/CSHARP-881)] - Add section about ServerName and certificate name mismatches to SSL docs
+*   [[CSHARP-882](https://datastax-oss.atlassian.net/browse/CSHARP-882)] - Add a section to the driver manual with information on Statements
+
+## 3.14.0
+
+2020-03-24
+
+### Features
+
+*   [[CSHARP-405](https://datastax-oss.atlassian.net/browse/CSHARP-405)] - Log exception when Cluster.Init() can not recover from
+*   [[CSHARP-806](https://datastax-oss.atlassian.net/browse/CSHARP-806)] - Drop support for .NET Standard 1.5 and bump net45 to net452
+*   [[CSHARP-819](https://datastax-oss.atlassian.net/browse/CSHARP-819)] - Add option to keep contact points unresolved and always re-resolve when there's total connectivity loss
+*   [[CSHARP-829](https://datastax-oss.atlassian.net/browse/CSHARP-829)] - Refine connection errors for connecting to cloud instance that may have been parked
+*   [[CSHARP-841](https://datastax-oss.atlassian.net/browse/CSHARP-841)] - Gracefully handle TCP backpressure
+*   [[CSHARP-846](https://datastax-oss.atlassian.net/browse/CSHARP-846)] - Implement EverywhereReplicationStrategy and LocalReplicationStrategy
+*   [[CSHARP-850](https://datastax-oss.atlassian.net/browse/CSHARP-850)] - Host distance should be a computed aggregate of all configured LBPs
+*   [[CSHARP-876](https://datastax-oss.atlassian.net/browse/CSHARP-876)] - The builder should fail fast when no credentials are provided for Astra clusters
+*   [[CSHARP-862](https://datastax-oss.atlassian.net/browse/CSHARP-862)] - Update System.Net.Http to fix vulnerabilities
+*   [[CSHARP-863](https://datastax-oss.atlassian.net/browse/CSHARP-863)] - Update System.Net.Security to fix vulnerabilities
+
+#### AppMetrics Extension
+
+*   [[CSHARP-851](https://datastax-oss.atlassian.net/browse/CSHARP-851)] - HistogramReservoir values should reset periodically (Timer metrics)
+
+### Bug fixes
+
+*   [[CSHARP-696](https://datastax-oss.atlassian.net/browse/CSHARP-696)] - HostConnectionPool incorrectly logs reconnection message after warmup
+*   [[CSHARP-697](https://datastax-oss.atlassian.net/browse/CSHARP-697)] - When socket.ConnectAsync() throws an error synchronously, SocketAsyncEventArgs is not disposed
+*   [[CSHARP-710](https://datastax-oss.atlassian.net/browse/CSHARP-710)] - Mapper cannot deserialize IList properties
+*   [[CSHARP-711](https://datastax-oss.atlassian.net/browse/CSHARP-711)] - Race condition: re-prepare on UP might not use the current keyspace
+*   [[CSHARP-786](https://datastax-oss.atlassian.net/browse/CSHARP-786)] - Support NULL in collection serializer
+*   [[CSHARP-798](https://datastax-oss.atlassian.net/browse/CSHARP-798)] - Handle prepared id mismatch when repreparing on the fly
+*   [[CSHARP-801](https://datastax-oss.atlassian.net/browse/CSHARP-801)] - Exception on UDT => CLR mapping of collection property which has null value
+*   [[CSHARP-816](https://datastax-oss.atlassian.net/browse/CSHARP-816)] - "Local datacenter is not specified" message is logged if user specifies it with the default execution profile
+*   [[CSHARP-839](https://datastax-oss.atlassian.net/browse/CSHARP-839)] - Mapper and Linq2Cql causes re-prepare warnings in scenarios with high concurrency
+*   [[CSHARP-845](https://datastax-oss.atlassian.net/browse/CSHARP-845)] - When socket.ConnectAsync returns synchronously, driver assumes that it is connected
+*   [[CSHARP-875](https://datastax-oss.atlassian.net/browse/CSHARP-875)] - Duplicate contact points cause cluster initialization failure
+*   [[CSHARP-877](https://datastax-oss.atlassian.net/browse/CSHARP-877)] - NodeMetric.DefaultNodeMetrics and SessionMetric.DefaultSessionMetrics contain null values
+*   [[CSHARP-878](https://datastax-oss.atlassian.net/browse/CSHARP-878)] - ControlConnection attempts to connect to DOWN nodes
+
+### Documentation
+
+*   [[CSHARP-489](https://datastax-oss.atlassian.net/browse/CSHARP-489)] - Use docfx or doxygen to generate API docs
+*   [[CSHARP-847](https://datastax-oss.atlassian.net/browse/CSHARP-847)] - Doc: include a note about concurrent schema modifications
+
+## 3.13.0
+
+2020-01-15
+
+### Features
+
+*   [[CSHARP-791](https://datastax-oss.atlassian.net/browse/CSHARP-791)] - Unified Driver
+*   [[CSHARP-840](https://datastax-oss.atlassian.net/browse/CSHARP-840)] - Linq2Cql and Mapper should generate CQL statements in a deterministic way
+
+### Bug fixes
+
+*   [[CSHARP-837](https://datastax-oss.atlassian.net/browse/CSHARP-837)] - Serializer protocol version is changed after init, causing current active connections to fail
+*   [[CSHARP-835](https://datastax-oss.atlassian.net/browse/CSHARP-835)] - BatchStatement error message uses short.MaxValue instead of ushort.MaxValue
+*   [[CSHARP-832](https://datastax-oss.atlassian.net/browse/CSHARP-832)] - Some graph related classes depend on the current culture
+
+## CassandraCSharpDriver.AppMetrics 1.0.1
+
+2019-11-11
+
+### Bug fixes
+
+*   [[CSHARP-817](https://datastax-oss.atlassian.net/browse/CSHARP-817)] - App.Metrics snapshot fails when timer metrics don't have any recorded values
+
+## 3.12.0
+
+2019-10-30
+
+### Features
+
+*   [[CSHARP-685](https://datastax-oss.atlassian.net/browse/CSHARP-685)] - Expose metrics
+*   [[CSHARP-754](https://datastax-oss.atlassian.net/browse/CSHARP-754)] - DataStax Astra support
+*   [[CSHARP-595](https://datastax-oss.atlassian.net/browse/CSHARP-595)] - DcAwareLoadBalancingPolicy: Warn when the local datacenter is not specified
+*   [[CSHARP-788](https://datastax-oss.atlassian.net/browse/CSHARP-788)] - Add list of reserved keywords and add double quotes when they are used as identifiers
+*   [[CSHARP-802](https://datastax-oss.atlassian.net/browse/CSHARP-802)] - Session.Warmup should mark host as down if no connection can be opened to that host
+
+### Bug fixes
+
+*   [[CSHARP-807](https://datastax-oss.atlassian.net/browse/CSHARP-807)] - Exception isn't logged when an exception is thrown while parsing a host token
+
+## 3.11.0
+
+2019-07-22
+
+### Features
+
+- [CSHARP-756] - ControlConnection init: Defer host map creation until system tables have been queried
+- [CSHARP-757] - Include host_id in host metadata
+- [CSHARP-779] - Separate socket endpoint from the host address using an endpoint resolver
+
+### Bug Fixes
+
+- [CSHARP-778] - NullReferenceException at Cassandra.Data.Linq.CqlExpressionVisitor.GetPropertyValue(MemberExpression node)
+- [CSHARP-781] - Linq2Cql GetTable() generates invalid create table when more than one option is specified
+- [CSHARP-784] - Driver is unable to correctly reestablish connection with previously decommissioned node
+
+## 3.10.1
+
+2019-06-17
+
+### Bug Fixes
+
+- [CSHARP-772] - Remove internal conversion of timestmap to DateTimeOffset
+- [CSHARP-777] - Invalid or unsupported protocol version (0)
+
+## 3.10.0
+
+2019-05-21
+
+### Features
+
+- [CSHARP-275] - Prevent duplicate metadata fetches from control connection and allow disabling schema metadata fetching
+- [CSHARP-763] - Introduce Execution Profiles in Mapper and LINQ APIs
+- [CSHARP-678] - Introduce Execution Profiles at Session Level
+- [CSHARP-424] - Allow UDT mappings to be defined for different keyspaces
+
+### Bug Fixes
+
+- [CSHARP-744] - LINQ and Mapper don't support empty column names
+- [CSHARP-766] - Cassandra Date is not mapped correct to LocalDate with some specfic values
+
+## 3.9.0
+
+2019-04-02
+
+### Features
+
+- [CSHARP-538] - Expose Metadata.CheckSchemaAgreement() and ExecutionInfo.IsSchemaInAgreement()
+- [CSHARP-618] - Add client configuration information to STARTUP message
+- [CSHARP-725] - Deprecate usedHostsPerRemoteDc in DCAwareRoundRobinPolicy
+
+### Bug Fixes
+
+- [CSHARP-708] - Retry on current host should be made on a different connection
+- [CSHARP-715] - LocalTime Parse fails for valid LocalTime strings on certain cultures
+- [CSHARP-752] - Memory leak in ControlConnection
+
+## 3.8.0
+
+2019-02-11
+
+### Features
+
+- [CSHARP-726] - Improvements to token map building process
 
 ## 3.7.0
 

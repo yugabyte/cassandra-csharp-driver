@@ -1,6 +1,25 @@
-﻿using System.Collections.Generic;
-using System.Diagnostics;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Cassandra.Data.Linq;
+using Cassandra.IntegrationTests.SimulacronAPI;
+using Cassandra.IntegrationTests.SimulacronAPI.PrimeBuilder.Then;
 using Cassandra.IntegrationTests.TestBase;
 using NUnit.Framework;
 #pragma warning disable 618
@@ -8,13 +27,15 @@ using NUnit.Framework;
 namespace Cassandra.IntegrationTests.Linq.Structures
 {
     [AllowFiltering]
-    [Table("coolMovies")]
+    [Table(Movie.TableName)]
     public class Movie
     {
+        public const string TableName = "coolMovies";
+
         [Column("mainGuy")]
         public string MainActor;
 
-        [PartitionKey(5)]
+        [PartitionKey(2)]
         [Column("movie_maker")]
         public string MovieMaker;
 
@@ -98,16 +119,97 @@ namespace Cassandra.IntegrationTests.Linq.Structures
             movieList.Add(new Movie("title4", "actor2", "director4", "maker4", 1988));
             return movieList;
         }
-
-        public static void DisplayMovies(IEnumerable<Movie> result)
-        {
-            foreach (Movie resMovie in result)
+        
+        private static readonly IDictionary<string, Func<Movie, object>> ColumnMappings =
+            new Dictionary<string, Func<Movie, object>>
             {
-                Trace.TraceInformation("Movie={0} Director={1} MainActor={2}, Year={3}",
-                                  resMovie.Title, resMovie.Director, resMovie.MainActor, resMovie.Year);
-            }
+                { "director", entity => entity.Director },
+                { "list", entity => entity.ExampleSet },
+                { "mainGuy", entity => entity.MainActor },
+                { "movie_maker", entity => entity.MovieMaker },
+                { "unique_movie_title", entity => entity.Title },
+                { "yearMade", entity => entity.Year }
+            };
+
+        private static readonly IDictionary<string, DataType> ColumnToDataTypes =
+            new Dictionary<string, DataType>
+            {
+                { "director", DataType.GetDataType(typeof(string)) },
+                { "list", DataType.GetDataType(typeof(List<string>)) },
+                { "mainGuy", DataType.GetDataType(typeof(string)) },
+                { "movie_maker", DataType.GetDataType(typeof(string)) },
+                { "unique_movie_title", DataType.GetDataType(typeof(string)) },
+                { "yearMade", DataType.GetDataType(typeof(int?)) },
+                { "[applied]", DataType.GetDataType(typeof(bool)) }
+            };
+
+        public static RowsResult GetEmptyRowsResult()
+        {
+            return new RowsResult(Movie.ColumnMappings.Keys.ToArray());
+        }
+        
+        public static RowsResult GetEmptyAppliedInfoRowsResult()
+        {
+            return new RowsResult(ColumnToDataTypes.Select(kvp => (kvp.Key, kvp.Value)).ToArray());
         }
 
+        public static RowsResult CreateAppliedInfoRowsResultWithoutMovie(bool applied)
+        {
+            var result = new RowsResult("[applied]");
+            return (RowsResult) result.WithRow(applied);
+        }
 
+        public RowsResult CreateAppliedInfoRowsResult()
+        {
+            return AddAppliedInfoRow(Movie.GetEmptyAppliedInfoRowsResult());
+        }
+        
+        public RowsResult CreateRowsResult()
+        {
+            return AddRow(Movie.GetEmptyRowsResult());
+        }
+        
+        public RowsResult AddRow(RowsResult result)
+        {
+            return (RowsResult) result.WithRow(GetParameters());
+        }
+
+        public static (string, DataType)[] GetColumns()
+        {
+            return Movie.ColumnToDataTypes.Select(kvp => (kvp.Key, kvp.Value)).ToArray();
+        }
+
+        public (DataType, object)[] GetParametersWithTypes(bool withNulls = true)
+        {
+            var parameters = Movie.ColumnMappings.Values.Select(func => func(this)).Zip(ColumnToDataTypes, (obj, v2) => (v2.Value, obj));
+            if (!withNulls)
+            {
+                parameters = parameters.Where(o => o.obj != null);
+            }
+
+            return parameters.ToArray();
+        }
+
+        public object[] GetParameters(bool withNulls = true)
+        {
+            var parameters = Movie.ColumnMappings.Values.Select(func => func(this));
+            if (!withNulls)
+            {
+                parameters = parameters.Where(o => o != null);
+            }
+
+            return parameters.ToArray();
+        }
+
+        public static RowsResult CreateRowsResult(IEnumerable<Movie> data)
+        {
+            return data.Aggregate(Movie.GetEmptyRowsResult(), (current, c) => c.AddRow(current));
+        }
+        
+        public RowsResult AddAppliedInfoRow(RowsResult result)
+        {
+            return (RowsResult) result.WithRow(
+                Movie.ColumnMappings.Values.Select(func => func(this)).Concat(new object [] { false }).ToArray());
+        }
     }
 }

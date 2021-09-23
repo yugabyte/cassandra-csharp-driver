@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,29 +16,33 @@
 
 using System;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
-using System.Linq;
 using Cassandra.Collections;
+using Cassandra.Connections;
+using Cassandra.Connections.Control;
 
 namespace Cassandra
 {
     internal class Hosts : IEnumerable<Host>
     {
         private readonly CopyOnWriteDictionary<IPEndPoint, Host> _hosts = new CopyOnWriteDictionary<IPEndPoint, Host>();
+
         /// <summary>
         /// Event that gets triggered when a host is considered as DOWN (not available)
         /// </summary>
         internal event Action<Host> Down;
+
         /// <summary>
         /// Event that gets triggered when a host is considered back UP (available for queries)
         /// </summary>
         internal event Action<Host> Up;
+
         /// <summary>
         /// Event that gets triggered when a new host has been added to the pool
         /// </summary>
         internal event Action<Host> Added;
+
         /// <summary>
         /// Event that gets triggered when a host has been removed
         /// </summary>
@@ -67,7 +71,15 @@ namespace Cassandra
         /// </summary>
         public Host Add(IPEndPoint key)
         {
-            var newHost = new Host(key);
+            return Add(key, null);
+        }
+        
+        /// <summary>
+        /// Adds the host if not exists
+        /// </summary>
+        public Host Add(IPEndPoint key, IContactPoint contactPoint)
+        {
+            var newHost = new Host(key, contactPoint);
             var host = _hosts.GetOrAdd(key, newHost);
             if (!ReferenceEquals(newHost, host))
             {
@@ -77,33 +89,23 @@ namespace Cassandra
             //The node was added
             host.Down += OnHostDown;
             host.Up += OnHostUp;
-            if (Added != null)
-            {
-                Added(newHost);
-            }
+            Added?.Invoke(newHost);
             return host;
         }
 
         private void OnHostDown(Host sender)
         {
-            if (Down != null)
-            {
-                Down(sender);
-            }
+            Down?.Invoke(sender);
         }
 
         private void OnHostUp(Host sender)
         {
-            if (Up != null)
-            {
-                Up(sender);
-            }
+            Up?.Invoke(sender);
         }
 
         public void RemoveIfExists(IPEndPoint ep)
         {
-            Host host;
-            if (!_hosts.TryRemove(ep, out host))
+            if (!_hosts.TryRemove(ep, out Host host))
             {
                 //The host does not exists
                 return;
@@ -111,10 +113,7 @@ namespace Cassandra
             host.Down -= OnHostDown;
             host.Up -= OnHostUp;
             host.SetAsRemoved();
-            if (Removed != null)
-            {
-                Removed(host);
-            }
+            Removed?.Invoke(host);
         }
 
         public IEnumerable<IPEndPoint> AllEndPointsToCollection()

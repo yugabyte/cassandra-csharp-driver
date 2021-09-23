@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,14 +16,12 @@
 
 using System;
 using System.Collections.Concurrent;
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
-﻿using System.Net;
-﻿using NUnit.Framework;
+using NUnit.Framework;
 using Moq;
 using System.Threading.Tasks;
 using System.Threading;
-﻿using Cassandra.Requests;
 #pragma warning disable 618
 
 namespace Cassandra.Tests
@@ -424,26 +422,26 @@ namespace Cassandra.Tests
         public void DowngradingConsistencyRetryTest()
         {
             var config = new Configuration();
-            var policy = DowngradingConsistencyRetryPolicy.Instance.Wrap(null);
+            var policy = DowngradingConsistencyRetryPolicy.Instance.Wrap(Cassandra.Policies.DefaultExtendedRetryPolicy);
             var dummyStatement = new SimpleStatement().SetRetryPolicy(policy);
             //Retry if 1 of 2 replicas are alive
-            var decision = RequestExecution.GetRetryDecision(
+            var decision = RequestHandlerTests.GetRetryDecisionFromServerError(
                 new UnavailableException(ConsistencyLevel.Two, 2, 1), policy, dummyStatement, config, 0);
             Assert.True(decision != null && decision.DecisionType == RetryDecision.RetryDecisionType.Retry);
 
             //Retry if 2 of 3 replicas are alive
-            decision = RequestExecution.GetRetryDecision(
+            decision = RequestHandlerTests.GetRetryDecisionFromServerError(
                 new UnavailableException(ConsistencyLevel.Three, 3, 2), policy, dummyStatement, config, 0);
             Assert.True(decision != null && decision.DecisionType == RetryDecision.RetryDecisionType.Retry);
 
             //Throw if 0 replicas are alive
-            decision = RequestExecution.GetRetryDecision(
+            decision = RequestHandlerTests.GetRetryDecisionFromServerError(
                 new UnavailableException(ConsistencyLevel.Three, 3, 0), policy, dummyStatement, config, 0);
             Assert.True(decision != null && decision.DecisionType == RetryDecision.RetryDecisionType.Rethrow);
 
             //Retry if 1 of 3 replicas is alive
             decision =
-                RequestExecution.GetRetryDecision(new ReadTimeoutException(ConsistencyLevel.All, 3, 1, false),
+                RequestHandlerTests.GetRetryDecisionFromServerError(new ReadTimeoutException(ConsistencyLevel.All, 3, 1, false),
                     policy, dummyStatement, config, 0);
             Assert.True(decision != null && decision.DecisionType == RetryDecision.RetryDecisionType.Retry);
         }

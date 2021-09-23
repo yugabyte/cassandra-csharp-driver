@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2017 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //
+
+using Cassandra.SessionManagement;
 
 namespace Cassandra
 {
@@ -35,8 +37,13 @@ namespace Cassandra
         /// <returns></returns>
         public static ISessionState GetState(this ISession instance)
         {
-            var session = instance as Session;
+            var session = instance as IInternalSession;
             return session == null ? SessionState.Empty() : SessionState.From(session);
+        }
+
+        internal static ISessionState GetState(this IInternalSession instance)
+        {
+            return SessionState.From(instance);
         }
     }
 }

@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -74,12 +74,15 @@ namespace Cassandra
         public static string GetCreateKeyspaceCql(string keyspace, Dictionary<string, string> replication, bool durableWrites, bool ifNotExists)
         {
             if (replication == null)
-                replication = new Dictionary<string, string> {{"class", ReplicationStrategies.SimpleStrategy}, {"replication_factor", "1"}};
+            {
+                replication = new Dictionary<string, string> { { "class", ReplicationStrategies.SimpleStrategy }, { "replication_factor", "1" } };
+            }
+
             return string.Format(
-                @"CREATE KEYSPACE {3}{0} 
-  WITH replication = {1} 
-   AND durable_writes = {2}"
-                , QuoteIdentifier(keyspace), Utils.ConvertToCqlMap(replication), durableWrites ? "true" : "false",
+                "CREATE KEYSPACE {3}{0} WITH replication = {1} AND durable_writes = {2}", 
+                QuoteIdentifier(keyspace),
+                Utils.ConvertToCqlMap(replication),
+                durableWrites ? "true" : "false",
                 ifNotExists ? "IF NOT EXISTS " : "");
         }
 

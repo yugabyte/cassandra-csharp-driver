@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using Cassandra.Requests;
 using Cassandra.Responses;
 
 namespace Cassandra
@@ -28,7 +29,8 @@ namespace Cassandra
         /// <summary>
         /// A factory to get the response handlers 
         /// </summary>
-        private static readonly Dictionary<byte, Func<Frame, Response>> _responseHandlerFactory = new Dictionary<byte, Func<Frame, Response>>
+        private static readonly Dictionary<byte, Func<Frame, Response>> _responseHandlerFactory = 
+            new Dictionary<byte, Func<Frame, Response>>
         {
             {AuthenticateResponse.OpCode, AuthenticateResponse.Create},
             {ErrorResponse.OpCode, ErrorResponse.Create},

@@ -1,30 +1,47 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Linq;
 using System.Net;
-
+using Cassandra.Connections;
+using Cassandra.DataStax.Graph;
 using NUnit.Framework;
 
 namespace Cassandra.Tests
 {
     [TestFixture]
-    public class BuilderTests
+    public class BuilderTests : BaseUnitTest
     {
         [Test]
         public void WithConnectionStringCredentialsTest()
         {
             const string contactPoints = "127.0.0.1,127.0.0.2,127.0.0.3";
-            var builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0}", contactPoints));
+            var builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0}", contactPoints));
             var config = builder.GetConfiguration();
             Assert.IsInstanceOf<NoneAuthProvider>(config.AuthProvider);
             Assert.IsNull(config.AuthInfoProvider);
 
-            builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0};Username=user1", contactPoints));
+            builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0};Username=user1", contactPoints));
             config = builder.GetConfiguration();
             //As there is no password, auth provider should be empty
             Assert.IsInstanceOf<NoneAuthProvider>(config.AuthProvider);
             Assert.IsNull(config.AuthInfoProvider);
 
-            builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0};Username=user1;Password=P@ssword!", contactPoints));
+            builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0};Username=user1;Password=P@ssword!", contactPoints));
             config = builder.GetConfiguration();
             Assert.IsInstanceOf<PlainTextAuthProvider>(config.AuthProvider);
             Assert.IsInstanceOf<SimpleAuthInfoProvider>(config.AuthInfoProvider);
@@ -34,11 +51,11 @@ namespace Cassandra.Tests
         public void WithConnectionStringPortTest()
         {
             const string contactPoints = "127.0.0.1,127.0.0.2,127.0.0.3";
-            var builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0}", contactPoints));
+            var builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0}", contactPoints));
             var config = builder.GetConfiguration();
             Assert.AreEqual(config.ProtocolOptions.Port, ProtocolOptions.DefaultPort);
 
-            builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0};Port=9000", contactPoints));
+            builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0};Port=9000", contactPoints));
             config = builder.GetConfiguration();
             Assert.AreEqual(config.ProtocolOptions.Port, 9000);
         }
@@ -47,11 +64,11 @@ namespace Cassandra.Tests
         public void WithConnectionStringDefaultKeyspaceTest()
         {
             const string contactPoints = "127.0.0.1,127.0.0.2,127.0.0.3";
-            var builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0}", contactPoints));
+            var builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0}", contactPoints));
             var config = builder.GetConfiguration();
             Assert.IsNull(config.ClientOptions.DefaultKeyspace);
 
-            builder = Cluster.Builder().WithConnectionString(String.Format("Contact Points={0};Default Keyspace=ks1", contactPoints));
+            builder = Cluster.Builder().WithConnectionString(string.Format("Contact Points={0};Default Keyspace=ks1", contactPoints));
             config = builder.GetConfiguration();
             Assert.AreEqual(config.ClientOptions.DefaultKeyspace, "ks1");
         }
@@ -78,52 +95,29 @@ namespace Cassandra.Tests
                 Cluster.Builder().AddContactPoints(contactPoints).WithCredentials(null, null));
             Assert.That(ex.Message, Contains.Substring("username"));
         }
-
+        
         [Test]
-        public void AddContactPointsWithPortShouldHaveCorrectPort()
+        public void Should_SetResolvedContactPoints_When_ClusterIsBuilt()
         {
             const string host1 = "127.0.0.1";
             const string host2 = "127.0.0.2";
-
-            int port = new Random().Next(9000, 9999);
-            var builder = Cluster.Builder().AddContactPoint(host1).WithPort(port);
+            const string host3 = "localhost";
+            
+            var builder = Cluster.Builder().AddContactPoints(host1, host2, host3);
             var cluster = builder.Build();
-            Assert.AreEqual(cluster.AllHosts().Last().Address.Port, port);
+            Assert.AreEqual(3, cluster.InternalRef.GetResolvedEndpoints().Count);
+            CollectionAssert.AreEqual(
+                new[] { new ConnectionEndPoint(new IPEndPoint(IPAddress.Parse(host1), ProtocolOptions.DefaultPort), cluster.Configuration.ServerNameResolver, null) }, 
+                cluster.InternalRef.GetResolvedEndpoints().Single(kvp => kvp.Key.StringRepresentation == host1).Value);
+            CollectionAssert.AreEqual(
+                new[] { new ConnectionEndPoint(new IPEndPoint(IPAddress.Parse(host2), ProtocolOptions.DefaultPort), cluster.Configuration.ServerNameResolver, null) }, 
+                cluster.InternalRef.GetResolvedEndpoints().Single(kvp => kvp.Key.StringRepresentation == host2).Value);
 
-            builder = Cluster.Builder().AddContactPoints(host1, host2).WithPort(port);
-            cluster = builder.Build();
-            Assert.True(cluster.AllHosts().All(h => h.Address.Port == port));
-        }
-
-        [Test]
-        public void AddContactPointsWithDefaultPort()
-        {
-            const string host1 = "127.0.0.1";
-            const string host2 = "127.0.0.2";
-
-            var builder = Cluster.Builder().AddContactPoint(host1);
-            var cluster = builder.Build();
-            Assert.AreEqual(ProtocolOptions.DefaultPort, cluster.AllHosts().Last().Address.Port);
-
-            builder = Cluster.Builder().AddContactPoints(host1, host2);
-            cluster = builder.Build();
-            Assert.True(cluster.AllHosts().All(h => h.Address.Port == ProtocolOptions.DefaultPort));
-        }
-
-        [Test]
-        public void AddContactPointsWithPortBeforeContactPoints()
-        {
-            const string host1 = "127.0.0.1";
-            const string host2 = "127.0.0.2";
-
-            const int port = 9999;
-            var builder = Cluster.Builder().WithPort(port).AddContactPoint(host1);
-            var cluster = builder.Build();
-            Assert.AreEqual(port, cluster.AllHosts().Last().Address.Port);
-
-            builder = Cluster.Builder().WithPort(port).AddContactPoints(host1, host2);
-            cluster = builder.Build();
-            Assert.True(cluster.AllHosts().All(h => h.Address.Port == port));
+            var localhostAddress = new ConnectionEndPoint(new IPEndPoint(IPAddress.Parse("127.0.0.1"), ProtocolOptions.DefaultPort), cluster.Configuration.ServerNameResolver, null);
+            Assert.Contains(localhostAddress, cluster.InternalRef.GetResolvedEndpoints()
+                                                     .Single(kvp => kvp.Key.StringRepresentation == host3)
+                                                     .Value
+                                                     .ToList());
         }
 
         [Test]
@@ -200,9 +194,9 @@ namespace Cassandra.Tests
         public void Should_Throw_When_All_Contact_Points_Cant_Be_Resolved()
         {
             var ex = Assert.Throws<NoHostAvailableException>(() => Cluster.Builder()
-                                                                          .AddContactPoint("not-a-host")
-                                                                          .AddContactPoint("not-a-host2")
-                                                                          .Build());
+                .AddContactPoint("not-a-host")
+                .AddContactPoint("not-a-host2")
+                .Build());
             Assert.That(ex.Message, Is.EqualTo("No host name could be resolved, attempted: not-a-host, not-a-host2"));
         }
 
@@ -273,6 +267,187 @@ namespace Cassandra.Tests
                                  .AddContactPoint("192.168.1.10")
                                  .GetConfiguration();
             Assert.AreEqual(expected, config.ProtocolOptions.MaxSchemaAgreementWaitSeconds);
+        }
+
+        [Test]
+        public void Should_ThrowException_When_ContactPointAndBundleAreProvided()
+        {
+            const string exceptionMsg = "Contact points can not be set when a secure connection bundle is provided.";
+            var builder = Cluster.Builder()
+                                .AddContactPoint("192.168.1.10")
+                                .WithCloudSecureConnectionBundle("bundle");
+
+            var ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                                 .AddContactPoint(IPAddress.Parse("192.168.1.10"))
+                                 .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                             .AddContactPoint(new IPEndPoint(IPAddress.Parse("192.168.1.10"), 9042))
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                             .AddContactPoints(new IPEndPoint(IPAddress.Parse("192.168.1.10"), 9042))
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+
+            builder = Cluster.Builder()
+                             .AddContactPoint(IPAddress.Parse("192.168.1.10"))
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+
+            builder = Cluster.Builder()
+                             .WithCloudSecureConnectionBundle("bundle")
+                             .AddContactPoint(IPAddress.Parse("192.168.1.10"));
+            
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+        }
+        
+        [Test]
+        public void Should_ThrowException_When_SslOptionsAndBundleAreProvided()
+        {
+            const string exceptionMsg = "SSL options can not be set when a secure connection bundle is provided.";
+            var builder = Cluster.Builder()
+                                .WithSSL()
+                                .WithCloudSecureConnectionBundle("bundle");
+
+            var ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                             .WithSSL()
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                             .WithSSL()
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                             .WithSSL()
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+
+            builder = Cluster.Builder()
+                             .WithSSL()
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+
+            builder = Cluster.Builder()
+                             .WithCloudSecureConnectionBundle("bundle")
+                             .WithSSL();
+            
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+        }
+        
+        [Test]
+        public void Should_ThrowException_When_CredentialsAreNotProvidedWithBundle()
+        {
+            const string exceptionMsg = "No credentials were provided. When using the secure connection bundle";
+            var builder = Cluster.Builder()
+                                .WithCloudSecureConnectionBundle("bundle");
+
+            var ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.IsTrue(ex.Message.Contains(exceptionMsg), ex.Message);
+        }
+
+        [Test]
+        public void Should_ThrowException_When_SslOptionsAndContactPointAndBundleAreProvided()
+        {
+            const string exceptionMsg = "SSL options can not be set when a secure connection bundle is provided.";
+            var builder = Cluster.Builder()
+                                 .AddContactPoints("127.0.0.1")
+                                 .WithSSL()
+                                 .WithCloudSecureConnectionBundle("bundle");
+
+            var ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+            
+            builder = Cluster.Builder()
+                             .WithSSL()
+                             .AddContactPoints("127.0.0.1")
+                             .WithCloudSecureConnectionBundle("bundle");
+
+            ex = Assert.Throws<ArgumentException>(() => builder.Build());
+            Assert.AreEqual(exceptionMsg, ex.Message);
+        }
+
+        [Test]
+        public void Should_Build_A_Cluster_With_Graph_Options()
+        {
+            var graphOptions = new GraphOptions();
+            ICluster cluster = Cluster.Builder()
+                .WithGraphOptions(graphOptions)
+                .AddContactPoint("192.168.1.159")
+                .Build();
+            Assert.NotNull(cluster.Configuration);
+            Assert.AreSame(graphOptions, cluster.Configuration.GraphOptions);
+        }
+
+        [Test]
+        public void Should_Build_A_Cluster_With_Default_Graph_Options()
+        {
+            //without specifying graph options
+            ICluster cluster = Cluster.Builder().AddContactPoint("192.168.1.159").Build();
+            Assert.NotNull(cluster.Configuration);
+            Assert.NotNull(cluster.Configuration);
+            Assert.NotNull(cluster.Configuration.GraphOptions);
+        }
+
+        [Test]
+        public void Should_Build_A_Cluster_With_DefaultLoadBalancingPolicy()
+        {
+            //without specifying load balancing policy
+            ICluster cluster = Cluster.Builder().AddContactPoint("192.168.1.159").Build();
+            Assert.NotNull(cluster.Configuration);
+            Assert.IsInstanceOf<DefaultLoadBalancingPolicy>(
+                cluster.Configuration.Policies.LoadBalancingPolicy);
+        }
+
+        [Test]
+        public void Should_Build_A_Cluster_With_The_Specified_LoadBalancingPolicy()
+        {
+            var lbp = new TestLoadBalancingPolicy();
+            ICluster cluster = Cluster.Builder()
+                .AddContactPoint("192.168.1.159")
+                .WithLoadBalancingPolicy(lbp)
+                .Build();
+            Assert.NotNull(cluster.Configuration);
+            Assert.AreSame(lbp, cluster.Configuration.Policies.LoadBalancingPolicy);
+        }
+
+        [Test]
+        public void Should_ReturnDefaultInsightsMonitoringEnabled_When_NotProvidedToBuilder()
+        {
+            const bool expected = MonitorReportingOptions.DefaultMonitorReportingEnabled;
+            var cluster = Cluster.Builder()
+                                .AddContactPoint("192.168.1.10")
+                                .Build();
+            Assert.AreEqual(expected, cluster.Configuration.MonitorReportingOptions.MonitorReportingEnabled);
+            Assert.AreEqual(MonitorReportingOptions.DefaultStatusEventDelayMilliseconds, cluster.Configuration.MonitorReportingOptions.StatusEventDelayMilliseconds);
         }
     }
 }

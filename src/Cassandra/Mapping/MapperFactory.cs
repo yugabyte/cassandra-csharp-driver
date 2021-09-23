@@ -1,4 +1,20 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -60,10 +76,8 @@ namespace Cassandra.Mapping
 
         public MapperFactory(TypeConverter typeConverter, PocoDataFactory pocoDataFactory)
         {
-            if (typeConverter == null) throw new ArgumentNullException("typeConverter");
-            if (pocoDataFactory == null) throw new ArgumentNullException("pocoDataFactory");
-            _typeConverter = typeConverter;
-            _pocoDataFactory = pocoDataFactory;
+            _typeConverter = typeConverter ?? throw new ArgumentNullException("typeConverter");
+            _pocoDataFactory = pocoDataFactory ?? throw new ArgumentNullException("pocoDataFactory");
 
             _mapperFuncCache = new ConcurrentDictionary<Tuple<Type, string, string>, Delegate>();
             _valueCollectorFuncCache = new ConcurrentDictionary<Tuple<Type, string>, Delegate>();
@@ -249,7 +263,7 @@ namespace Cassandra.Mapping
                 if (constructor == null)
                 {
                     throw new ArgumentException(
-                        String.Format("RowSet columns length is {0} but type {1} does not contain a constructor with the same amount of parameters", 
+                        string.Format("RowSet columns length is {0} but type {1} does not contain a constructor with the same amount of parameters", 
                         rows.Columns.Length,
                         pocoData.PocoType));
                 }
@@ -271,8 +285,7 @@ namespace Cassandra.Mapping
             foreach (var dbColumn in rows.Columns)
             {
                 // Try to find a corresponding column on the POCO and if not found, don't map that column from the RowSet
-                PocoColumn pocoColumn;
-                if (pocoData.Columns.TryGetItem(dbColumn.Name, out pocoColumn) == false)
+                if (pocoData.Columns.TryGetItem(dbColumn.Name, out PocoColumn pocoColumn) == false)
                     continue;
 
                 // Figure out if we're going to need to do any casting/conversion when we call Row.GetValue<T>(columnIndex)
@@ -286,8 +299,7 @@ namespace Cassandra.Mapping
 
                 // Cassandra will return null for empty collections, so make an effort to populate collection properties on the POCO with
                 // empty collections instead of null in those cases
-                Expression createEmptyCollection;
-                if (TryGetCreateEmptyCollectionExpression(dbColumn, pocoColumn.MemberInfoType, out createEmptyCollection))
+                if (TryGetCreateEmptyCollectionExpression(dbColumn, pocoColumn.MemberInfoType, out Expression createEmptyCollection))
                 {
                     // poco.SomeFieldOrProp = ... createEmptyCollection ...
                     ifRowValueIsNull = Expression.Assign(Expression.MakeMemberAccess(poco, pocoColumn.MemberInfo), createEmptyCollection);
@@ -364,8 +376,7 @@ namespace Cassandra.Mapping
                 // Start with an expression that does nothing if the row is null
                 Expression ifRowValueIsNull = Expression.Empty();
                 // For collections, make an effort to return an empty collection instead of null
-                Expression createEmptyCollection;
-                if (TryGetCreateEmptyCollectionExpression(c, memberType, out createEmptyCollection))
+                if (TryGetCreateEmptyCollectionExpression(c, memberType, out Expression createEmptyCollection))
                 {
                     // poco.SomeFieldOrProp = ... createEmptyCollection ...
                     ifRowValueIsNull = Expression.Assign(Expression.MakeMemberAccess(poco, member), createEmptyCollection);
@@ -473,7 +484,7 @@ namespace Cassandra.Mapping
                 }
                 catch (InvalidOperationException ex)
                 {
-                    var message = String.Format("It is not possible to convert column `{0}` of type {1} to target type {2}", dbColumn.Name, dbColumn.TypeCode, pocoDestType.Name);
+                    var message = string.Format("It is not possible to convert column `{0}` of type {1} to target type {2}", dbColumn.Name, dbColumn.TypeCode, pocoDestType.Name);
                     throw new InvalidTypeException(message, ex);
                 }
             }
@@ -481,12 +492,17 @@ namespace Cassandra.Mapping
             {
                 // Invoke the converter function on getValueT (taking into account whether it's a static method):
                 //     converter(row.GetValue<T>(columnIndex));
-                convertedValue = Expression.Call(converter.Target == null ? null : Expression.Constant(converter.Target), GetMethod(converter), getValueT);
+                convertedValue = 
+                    Expression.Convert(
+                        Expression.Call(
+                            converter.Target == null ? null : Expression.Constant(converter.Target), 
+                            GetMethod(converter), 
+                            getValueT), 
+                        pocoDestType);
             }
-            Expression defaultValue;
             // Cassandra will return null for empty collections, so make an effort to populate collection properties on the POCO with
             // empty collections instead of null in those cases
-            if (!TryGetCreateEmptyCollectionExpression(dbColumn, pocoDestType, out defaultValue))
+            if (!TryGetCreateEmptyCollectionExpression(dbColumn, pocoDestType, out Expression defaultValue))
             {
                 // poco.SomeFieldOrProp = ... createEmptyCollection ...
                 defaultValue = Expression.Default(pocoDestType);
@@ -566,8 +582,8 @@ namespace Cassandra.Mapping
                     return true;
                 }
 
-                // Handle ICollection<T>, IList<T>, and IEnumerable<T>
-                if (openGenericType == typeof (ICollection<>) || openGenericType == typeof (IList<>) || openGenericType == typeof (IEnumerable<>))
+                // Handle interfaces implemented by List<T>, like ICollection<T>, IList<T>, IReadOnlyList<T>, IReadOnlyCollection<T> and IEnumerable<T>
+                if (TypeConverter.ListGenericInterfaces.Contains(openGenericType))
                 {
                     // The driver uses List so we'll use that as well
                     Type listType = typeof (List<>).MakeGenericType(pocoDestType.GetTypeInfo().GetGenericArguments());
@@ -600,11 +616,7 @@ namespace Cassandra.Mapping
 
         private static MethodInfo GetMethod(Delegate deleg)
         {
-#if !NETCORE
             return deleg.Method;
-#else
-            return deleg.GetMethodInfo();
-#endif
         }
     }
 }

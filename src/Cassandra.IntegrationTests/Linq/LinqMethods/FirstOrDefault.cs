@@ -1,4 +1,20 @@
-﻿using System.Collections.Generic;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System.Collections.Generic;
 using System.Linq;
 using Cassandra.Data.Linq;
 using Cassandra.IntegrationTests.Linq.Structures;
@@ -9,75 +25,60 @@ using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Linq.LinqMethods
 {
-    [Category("short"), TestCassandraVersion(2, 0)]
-    public class FirstOrDefault : SharedClusterTest
+    [TestCassandraVersion(2, 0)]
+    public class FirstOrDefault : SimulacronTest
     {
-        private ISession _session;
-        private List<Movie> _movieList = Movie.GetDefaultMovieList();
-        string _uniqueKsName = TestUtils.GetUniqueKeyspaceName();
+        private readonly List<Movie> _movieList = Movie.GetDefaultMovieList();
         private Table<Movie> _movieTable;
-
-        public override void OneTimeSetUp()
+        
+        public override void SetUp()
         {
-            base.OneTimeSetUp();
-            _session = Session;
-            _session.CreateKeyspace(_uniqueKsName);
-            _session.ChangeKeyspace(_uniqueKsName);
-
-            // drop table if exists, re-create
+            base.SetUp();
+            
             MappingConfiguration movieMappingConfig = new MappingConfiguration();
             movieMappingConfig.MapperFactory.PocoDataFactory.AddDefinitionDefault(typeof(Movie),
-                 () => LinqAttributeBasedTypeDefinition.DetermineAttributes(typeof(Movie)));
-            _movieTable = new Table<Movie>(_session, movieMappingConfig);
-            _movieTable.Create();
-
-            //Insert some data
-            foreach (var movie in _movieList)
-                _movieTable.Insert(movie).Execute();
+                () => LinqAttributeBasedTypeDefinition.DetermineAttributes(typeof(Movie)));
+            _movieTable = new Table<Movie>(Session, movieMappingConfig);
         }
 
+        [TestCase(true)]
+        [TestCase(false)]
         [Test]
-        public void LinqFirstOrDefault_Sync()
+        public void LinqFirstOrDefault(bool async)
         {
             var expectedMovie = _movieList.First();
+            
+            TestCluster.PrimeFluent(
+                b => b.WhenQuery(
+                          "SELECT \"director\", \"list\", \"mainGuy\", \"movie_maker\", \"unique_movie_title\", \"yearMade\" " +
+                          $"FROM \"{Movie.TableName}\" WHERE \"director\" = ? AND \"unique_movie_title\" = ? AND \"movie_maker\" = ? LIMIT ? ALLOW FILTERING",
+                          rows => rows.WithParams(expectedMovie.Director, expectedMovie.Title, expectedMovie.MovieMaker, 1))
+                      .ThenRowsSuccess(expectedMovie.CreateRowsResult()));
 
             // Test
-            var first =
+            var firstQuery =
                 _movieTable.FirstOrDefault(
-                    m => m.Director == expectedMovie.Director && m.Title == expectedMovie.Title && m.MovieMaker == expectedMovie.MovieMaker).Execute();
+                    m => m.Director == expectedMovie.Director && m.Title == expectedMovie.Title && m.MovieMaker == expectedMovie.MovieMaker);
+            var first = async ? firstQuery.ExecuteAsync().Result : firstQuery.Execute();
             Assert.IsNotNull(first);
             Assert.AreEqual(expectedMovie.MovieMaker, first.MovieMaker);
         }
-
+        
+        [TestCase(true)]
+        [TestCase(false)]
         [Test]
-        public void LinqFirstOrDefault_Sync_NoSuchRecord()
+        public void LinqFirstOrDefault_NoSuchRecord(bool async)
         {
-            var first = _movieTable.FirstOrDefault(m => m.Director == "non_existant_" + Randomm.RandomAlphaNum(10)).Execute();
-            Assert.IsNull(first);
-        }
+            var randomStr = ConstantReturningHelper.FromObj(Randomm.RandomAlphaNum(10));
+            TestCluster.PrimeFluent(
+                b => b.WhenQuery(
+                          "SELECT \"director\", \"list\", \"mainGuy\", \"movie_maker\", \"unique_movie_title\", \"yearMade\" " +
+                          $"FROM \"{Movie.TableName}\" WHERE \"director\" = ? LIMIT ? ALLOW FILTERING",
+                          rows => rows.WithParams("non_existant_" + randomStr.Get(), 1))
+                      .ThenRowsSuccess(Movie.GetColumns()));
 
-        [Test]
-        public void LinqFirstOrDefault_Async()
-        {
-            // Setup
-            _movieTable = new Table<Movie>(_session, new MappingConfiguration());
-            var expectedMovie = _movieList.Last();
-
-            // Test
-            var actualMovie =
-                _movieTable.FirstOrDefault(
-                    m => m.Director == expectedMovie.Director && m.Title == expectedMovie.Title && m.MovieMaker == expectedMovie.MovieMaker)
-                     .ExecuteAsync()
-                     .Result;
-            Assert.IsNotNull(actualMovie);
-            Movie.AssertEquals(expectedMovie, actualMovie);
-        }
-
-        [Test]
-        public void LinqFirstOrDefault_Async_NoSuchRecord()
-        {
-            var table = new Table<Movie>(_session, new MappingConfiguration());
-            var first = table.FirstOrDefault(m => m.Director == "non_existant_" + Randomm.RandomAlphaNum(10)).ExecuteAsync().Result;
+            var firstQuery = _movieTable.FirstOrDefault(m => m.Director == "non_existant_" + randomStr.Get());
+            var first = async ? firstQuery.ExecuteAsync().Result : firstQuery.Execute();
             Assert.IsNull(first);
         }
     }

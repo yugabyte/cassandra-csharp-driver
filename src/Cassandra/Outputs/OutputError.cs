@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -59,8 +59,7 @@ namespace Cassandra
 
         internal static OutputError CreateOutputError(int code, string message, FrameReader cb)
         {
-            Func<OutputError> factoryMethod;
-            if (OutputErrorFactoryMethods.TryGetValue(code, out factoryMethod) == false)
+            if (!OutputErrorFactoryMethods.TryGetValue(code, out Func<OutputError> factoryMethod))
                 throw new DriverInternalError(string.Format("Received unknown error with code {0} and message {1}", code, message));
 
             var error = factoryMethod();

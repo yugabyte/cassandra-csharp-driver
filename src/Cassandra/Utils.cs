@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -64,30 +64,24 @@ namespace Cassandra
             var map = new SortedDictionary<string, int>();
 
             if (source != "{}")
+            { 
                 foreach (string elem in elements)
                 {
-                    int value;
-                    if (int.TryParse(elem.Split(':')[1].Replace("\"", ""), out value))
+                    if (int.TryParse(elem.Split(':')[1].Replace("\"", ""), out int value))
                         map.Add(elem.Split(':')[0].Replace("\"", ""), value);
                     else
                         throw new FormatException("Value of keyspace strategy option is in invalid format!");
                 }
-
+            }
             return map;
         }
-        
+
         /// <summary>
-         /// Performs a getnameinfo() call and returns the primary host name
-         /// </summary>
+        /// Performs a getnameinfo() call and returns the primary host name
+        /// </summary>
         public static string GetPrimaryHostNameInfo(string address)
         {
-#if !NETCORE
             var hostEntry = Dns.GetHostEntry(address);
-#else
-            var hostEntryTask = Dns.GetHostEntryAsync(address);
-            hostEntryTask.Wait();
-            var hostEntry = hostEntryTask.Result;
-#endif
             return hostEntry.HostName;
         }
 
@@ -101,8 +95,7 @@ namespace Cassandra
 
             foreach (KeyValuePair<TKey, TValue> kvp in dict1)
             {
-                TValue value2;
-                if (!dict2.TryGetValue(kvp.Key, out value2))
+                if (!dict2.TryGetValue(kvp.Key, out TValue value2))
                     return false;
                 if (!comp.Equals(kvp.Value, value2))
                     return false;
@@ -208,7 +201,7 @@ namespace Cassandra
             foreach (var stream in streamList)
             {
                 stream.Position = 0;
-                var itemLength = (int) stream.Length;
+                var itemLength = (int)stream.Length;
                 stream.Read(buffer, offset, itemLength);
                 offset += itemLength;
             }
@@ -313,6 +306,30 @@ namespace Cassandra
         }
 
         /// <summary>
+        /// Combines the hash code based on the value of nullable items
+        /// </summary>
+        internal static int CombineHashCodeWithNulls<T>(IEnumerable<T> items)
+        {
+            unchecked
+            {
+                var hash = 17;
+                foreach (var item in items)
+                {
+                    hash = hash * 23 + (item?.GetHashCode() ?? 0);
+                }
+                return hash;
+            }
+        }
+
+        /// <summary>
+        /// Combines the hash code based on the value of nullable items
+        /// </summary>
+        internal static int CombineHashCodeWithNulls(params object[] items)
+        {
+            return Utils.CombineHashCodeWithNulls<object>(items);
+        }
+
+        /// <summary>
         /// Returns true if the ConsistencyLevel is either <see cref="ConsistencyLevel.Serial"/> or <see cref="ConsistencyLevel.LocalSerial"/>,
         /// otherwise false.
         /// </summary>
@@ -362,7 +379,7 @@ namespace Cassandra
         public static bool IsIDictionary(Type t, out Type keyType, out Type valueType)
         {
             var typeInfo = t.GetTypeInfo();
-            var isIDictionary = typeInfo.IsGenericType && 
+            var isIDictionary = typeInfo.IsGenericType &&
                 typeInfo.GetGenericTypeDefinition() == typeof(IDictionary<,>);
             Type[] subTypes;
             if (isIDictionary)
@@ -401,11 +418,10 @@ namespace Cassandra
         public static string FillZeros(int value, int length = 2)
         {
             var textValue = value.ToString();
-            if (textValue.Length >= length)
-            {
-                return textValue;
-            }
-            return String.Join("", Enumerable.Repeat("0", length - textValue.Length)) + textValue;
+
+            return textValue.Length >= length
+                 ? textValue
+                 : textValue.PadLeft(length, '0');
         }
 
         public static string[] ParseJsonStringArray(string value)
@@ -498,7 +514,7 @@ namespace Cassandra
                 }
                 else if (isKey)
                 {
-                    key += c;   
+                    key += c;
                 }
             }
             return map;

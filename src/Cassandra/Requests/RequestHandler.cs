@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -21,8 +21,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Cassandra.Collections;
+using Cassandra.Connections;
+using Cassandra.ExecutionProfiles;
+using Cassandra.Observers.Abstractions;
 using Cassandra.Serialization;
+using Cassandra.SessionManagement;
 using Cassandra.Tasks;
 
 namespace Cassandra.Requests
@@ -36,57 +41,58 @@ namespace Cassandra.Requests
 
         private readonly IRequest _request;
         private readonly IInternalSession _session;
-        private readonly TaskCompletionSource<RowSet> _tcs;
+        private readonly IRequestResultHandler _requestResultHandler;
         private long _state;
         private readonly IEnumerator<Host> _queryPlan;
         private readonly object _queryPlanLock = new object();
         private readonly ICollection<IRequestExecution> _running = new CopyOnWriteList<IRequestExecution>();
         private ISpeculativeExecutionPlan _executionPlan;
         private volatile HashedWheelTimer.ITimeout _nextExecutionTimeout;
-
-        public Policies Policies { get; }
+        private readonly IRequestObserver _requestObserver;
         public IExtendedRetryPolicy RetryPolicy { get; }
-        public Serializer Serializer { get; }
+        public ISerializer Serializer { get; }
         public IStatement Statement { get; }
+        public IRequestOptions RequestOptions { get; }
 
         /// <summary>
-        /// Creates a new instance using a request and the statement.
+        /// Creates a new instance using a request, the statement and the execution profile.
         /// </summary>
-        public RequestHandler(IInternalSession session, Serializer serializer, IRequest request, IStatement statement)
+        public RequestHandler(
+            IInternalSession session, ISerializer serializer, IRequest request, IStatement statement, IRequestOptions requestOptions)
         {
-            _tcs = new TaskCompletionSource<RowSet>();
             _session = session ?? throw new ArgumentNullException(nameof(session));
+            _requestObserver = session.ObserverFactory.CreateRequestObserver();
+            _requestResultHandler = new TcsMetricsRequestResultHandler(_requestObserver);
             _request = request;
             Serializer = serializer ?? throw new ArgumentNullException(nameof(session));
             Statement = statement;
-            Policies = _session.Cluster.Configuration.Policies;
-            RetryPolicy = Policies.ExtendedRetryPolicy;
+            RequestOptions = requestOptions ?? throw new ArgumentNullException(nameof(requestOptions));
+
+            RetryPolicy = RequestOptions.RetryPolicy;
 
             if (statement?.RetryPolicy != null)
             {
-                RetryPolicy = statement.RetryPolicy.Wrap(Policies.ExtendedRetryPolicy);
+                RetryPolicy = statement.RetryPolicy.Wrap(RetryPolicy);
             }
 
-            _queryPlan = RequestHandler.GetQueryPlan(session, statement, Policies).GetEnumerator();
+            _queryPlan = RequestHandler.GetQueryPlan(session, statement, RequestOptions.LoadBalancingPolicy).GetEnumerator();
         }
 
         /// <summary>
         /// Creates a new instance using the statement to build the request.
         /// Statement can not be null.
         /// </summary>
-        public RequestHandler(IInternalSession session, Serializer serializer, IStatement statement)
-            : this(session, serializer, RequestHandler.GetRequest(statement, serializer, session.Cluster.Configuration), statement)
+        public RequestHandler(IInternalSession session, ISerializer serializer, IStatement statement, IRequestOptions requestOptions)
+            : this(session, serializer, RequestHandler.GetRequest(statement, serializer, requestOptions), statement, requestOptions)
         {
-
         }
 
         /// <summary>
         /// Creates a new instance with no request, suitable for getting a connection.
         /// </summary>
-        public RequestHandler(IInternalSession session, Serializer serializer)
-            : this(session, serializer, null, null)
+        public RequestHandler(IInternalSession session, ISerializer serializer)
+            : this(session, serializer, null, null, session.Cluster.Configuration.DefaultRequestOptions)
         {
-
         }
 
         /// <summary>
@@ -94,60 +100,74 @@ namespace Cassandra.Requests
         /// In the special case when a Host is provided at Statement level, it will return a query plan with a single
         /// host.
         /// </summary>
-        private static IEnumerable<Host> GetQueryPlan(ISession session, IStatement statement, Policies policies)
+        private static IEnumerable<Host> GetQueryPlan(ISession session, IStatement statement, ILoadBalancingPolicy lbp)
         {
             // Single host iteration
             var host = (statement as Statement)?.Host;
 
             return host == null
-                ? policies.LoadBalancingPolicy.NewQueryPlan(session.Keyspace, statement)
+                ? lbp.NewQueryPlan(session.Keyspace, statement)
                 : Enumerable.Repeat(host, 1);
         }
-        
+
         /// <inheritdoc />
-        public IRequest BuildRequest(IStatement statement, Serializer serializer, Configuration config)
+        public IRequest BuildRequest()
         {
-            return RequestHandler.GetRequest(statement, serializer, config);
+            return RequestHandler.GetRequest(Statement, Serializer, RequestOptions);
         }
 
         /// <summary>
         /// Gets the Request to send to a cassandra node based on the statement type
         /// </summary>
-        internal static IRequest GetRequest(IStatement statement, Serializer serializer, Configuration config)
+        internal static IRequest GetRequest(IStatement statement, ISerializer serializer, IRequestOptions requestOptions)
         {
             ICqlRequest request = null;
             if (statement.IsIdempotent == null)
             {
-                statement.SetIdempotence(config.QueryOptions.GetDefaultIdempotence());
+                statement.SetIdempotence(requestOptions.DefaultIdempotence);
             }
+
             if (statement is RegularStatement s1)
             {
                 s1.Serializer = serializer;
-                var options = QueryProtocolOptions.CreateFromQuery(serializer.ProtocolVersion, s1, config.QueryOptions, config.Policies);
+                var options = QueryProtocolOptions.CreateFromQuery(serializer.ProtocolVersion, s1, requestOptions, null);
                 options.ValueNames = s1.QueryValueNames;
-                request = new QueryRequest(serializer.ProtocolVersion, s1.QueryString, s1.IsTracing, options);
+                request = new QueryRequest(serializer, s1.QueryString, options, s1.IsTracing, s1.OutgoingPayload);
             }
+
             if (statement is BoundStatement s2)
             {
-                var options = QueryProtocolOptions.CreateFromQuery(serializer.ProtocolVersion, s2, config.QueryOptions, config.Policies);
-                request = new ExecuteRequest(serializer.ProtocolVersion, s2.PreparedStatement.Id, null, s2.IsTracing, options);
+                // set skip metadata only when result metadata id is supported because of CASSANDRA-10786
+                var skipMetadata = 
+                    serializer.ProtocolVersion.SupportsResultMetadataId() 
+                    && s2.PreparedStatement.ResultMetadata.ContainsColumnDefinitions();
+
+                var options = QueryProtocolOptions.CreateFromQuery(serializer.ProtocolVersion, s2, requestOptions, skipMetadata);
+                request = new ExecuteRequest(
+                    serializer, 
+                    s2.PreparedStatement.Id, 
+                    null,
+                    s2.PreparedStatement.ResultMetadata, 
+                    options,
+                    s2.IsTracing, 
+                    s2.OutgoingPayload);
             }
+
             if (statement is BatchStatement s)
             {
                 s.Serializer = serializer;
-                var consistency = config.QueryOptions.GetConsistencyLevel();
-                if (s.ConsistencyLevel != null)
+                var consistency = requestOptions.ConsistencyLevel;
+                if (s.ConsistencyLevel.HasValue)
                 {
                     consistency = s.ConsistencyLevel.Value;
                 }
-                request = new BatchRequest(serializer.ProtocolVersion, s, consistency, config);
+                request = new BatchRequest(serializer, s.OutgoingPayload, s, consistency, requestOptions);
             }
+
             if (request == null)
             {
-                throw new NotSupportedException("Statement of type " + statement.GetType().FullName + " not supported");   
+                throw new NotSupportedException("Statement of type " + statement.GetType().FullName + " not supported");
             }
-            //Set the outgoing payload for the request
-            request.Payload = statement.OutgoingPayload;
             return request;
         }
 
@@ -185,7 +205,7 @@ namespace Cassandra.Requests
             }
             if (ex != null)
             {
-                _tcs.TrySetException(ex);
+                _requestResultHandler.TrySetException(ex);
                 return true;
             }
             if (action != null)
@@ -196,16 +216,16 @@ namespace Cassandra.Requests
                     try
                     {
                         action();
-                        _tcs.TrySetResult(result);
+                        _requestResultHandler.TrySetResult(result);
                     }
                     catch (Exception actionEx)
                     {
-                        _tcs.TrySetException(actionEx);
+                        _requestResultHandler.TrySetException(actionEx);
                     }
                 });
                 return true;
             }
-            _tcs.TrySetResult(result);
+            _requestResultHandler.TrySetResult(result);
             return true;
         }
 
@@ -257,7 +277,7 @@ namespace Cassandra.Requests
 
             throw new NoHostAvailableException(triedHosts);
         }
-        
+
         /// <summary>
         /// Checks if the host is a valid candidate for the purpose of obtaining a connection.
         /// This method obtains the <see cref="HostDistance"/> from the load balancing policy.
@@ -268,7 +288,7 @@ namespace Cassandra.Requests
         /// (see documentation of <see cref="ValidHost.New"/>)</returns>
         private bool TryValidateHost(Host host, out ValidHost validHost)
         {
-            var distance = Cluster.RetrieveDistance(host, Policies.LoadBalancingPolicy);
+            var distance = _session.InternalCluster.RetrieveAndSetDistance(host);
             validHost = ValidHost.New(host, distance);
             return validHost != null;
         }
@@ -304,7 +324,7 @@ namespace Cassandra.Requests
             {
                 return null;
             }
-            
+
             var c = await GetConnectionToValidHostAsync(validHost, triedHosts).ConfigureAwait(false);
             return c;
         }
@@ -327,65 +347,30 @@ namespace Cassandra.Requests
         internal static async Task<IConnection> GetConnectionFromHostAsync(
             Host host, HostDistance distance, IInternalSession session, IDictionary<IPEndPoint, Exception> triedHosts)
         {
-            IConnection c = null;
             var hostPool = session.GetOrCreateConnectionPool(host, distance);
+            
             try
             {
-                c = await hostPool.BorrowConnection().ConfigureAwait(false);
-            }
-            catch (UnsupportedProtocolVersionException ex)
-            {
-                // The version of the protocol is not supported on this host
-                // Most likely, we are using a higher protocol version than the host supports
-                RequestHandler.Logger.Error("Host {0} does not support protocol version {1}. You should use a fixed protocol " +
-                             "version during rolling upgrades of the cluster. Setting the host as DOWN to " +
-                             "avoid hitting this node as part of the query plan for a while", host.Address, ex.ProtocolVersion);
-                triedHosts[host.Address] = ex;
-                session.MarkAsDownAndScheduleReconnection(host, hostPool);
-            }
-            catch (BusyPoolException ex)
-            {
-                RequestHandler.Logger.Warning(
-                    "All connections to host {0} are busy ({1} requests are in-flight on {2} connection(s))," +
-                    " consider lowering the pressure or make more nodes available to the client", host.Address,
-                    ex.MaxRequestsPerConnection, ex.ConnectionLength);
-                triedHosts[host.Address] = ex;
-            }
-            catch (Exception ex)
-            {
-                // Probably a SocketException/AuthenticationException, move along
-                RequestHandler.Logger.Error("Exception while trying borrow a connection from a pool", ex);
-                triedHosts[host.Address] = ex;
-            }
-
-            if (c == null)
-            {
-                return null;
-            }
-            try
-            {
-                await c.SetKeyspace(session.Keyspace).ConfigureAwait(false);
+                return await hostPool.GetConnectionFromHostAsync(triedHosts, () => session.Keyspace).ConfigureAwait(false);
             }
             catch (SocketException)
             {
-                hostPool.Remove(c);
                 // A socket exception on the current connection does not mean that all the pool is closed:
                 // Retry on the same host
                 return await RequestHandler.GetConnectionFromHostAsync(host, distance, session, triedHosts).ConfigureAwait(false);
             }
-            return c;
         }
 
         public Task<RowSet> SendAsync()
         {
             if (_request == null)
             {
-                _tcs.TrySetException(new DriverException("request can not be null"));
-                return _tcs.Task;
+                _requestResultHandler.TrySetException(new DriverException("request can not be null"));
+                return _requestResultHandler.Task;
             }
 
             StartNewExecution();
-            return _tcs.Task;
+            return _requestResultHandler.Task;
         }
 
         /// <summary>
@@ -395,7 +380,7 @@ namespace Cassandra.Requests
         {
             try
             {
-                var execution = NewExecution(_session, _request);
+                var execution = _session.Cluster.Configuration.RequestExecutionFactory.Create(this, _session, _request, _requestObserver);
                 var lastHost = execution.Start(false);
                 _running.Add(execution);
                 ScheduleNext(lastHost);
@@ -408,18 +393,13 @@ namespace Cassandra.Requests
                     //There isn't any host available, yield it to the user
                     SetCompleted(ex);
                 }
-                //Let's wait for the other executions 
+                //Let's wait for the other executions
             }
             catch (Exception ex)
             {
                 //There was an Exception before sending: a protocol error or the keyspace does not exists
                 SetCompleted(ex);
             }
-        }
-
-        protected virtual IRequestExecution NewExecution(IInternalSession session, IRequest request)
-        {
-            return new RequestExecution(this, _session, _request);
         }
 
         /// <summary>
@@ -434,7 +414,7 @@ namespace Cassandra.Requests
             }
             if (_executionPlan == null)
             {
-                _executionPlan = Policies.SpeculativeExecutionPolicy.NewPlan(_session.Keyspace, Statement);
+                _executionPlan = RequestOptions.SpeculativeExecutionPolicy.NewPlan(_session.Keyspace, Statement);
             }
             var delay = _executionPlan.NextExecution(currentHost);
             if (delay <= 0)
@@ -451,7 +431,9 @@ namespace Cassandra.Requests
                     {
                         return;
                     }
-                    RequestHandler.Logger.Info("Starting new speculative execution after {0}, last used host {1}", delay, currentHost.Address);
+
+                    RequestHandler.Logger.Info("Starting new speculative execution after {0} ms. Last used host: {1}", delay, currentHost.Address);
+                    _requestObserver.OnSpeculativeExecution(currentHost, delay);
                     StartNewExecution();
                 });
             }, null, delay);

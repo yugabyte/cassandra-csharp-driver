@@ -1,7 +1,21 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using Cassandra.Data.Linq;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.Mapping;
@@ -22,30 +36,44 @@ namespace Cassandra.IntegrationTests.Linq.Structures
                 new Map<EntityWithArrayType>()
                 .TableName("EntityWithArrayType_" + Randomm.RandomAlphaNum(12))
                 .PartitionKey(u => u.Id));
-            Table<EntityWithArrayType> table = new Table<EntityWithArrayType>(session, config);
+            var table = new Table<EntityWithArrayType>(session, config);
             table.Create();
 
-            List<EntityWithArrayType> entityList = GetDefaultEntityList();
+            var entityList = EntityWithArrayType.GetDefaultEntityList();
             //Insert some data
             foreach (var singleEntity in entityList)
                 table.Insert(singleEntity).Execute();
 
             return new Tuple<Table<EntityWithArrayType>, List<EntityWithArrayType>>(table, entityList);
         }
+        
+        public static Tuple<Table<EntityWithArrayType>, List<EntityWithArrayType>> GetDefaultTable(
+            ISession session, string tableName)
+        {
+            // create table
+            var config = new MappingConfiguration().Define(
+                new Map<EntityWithArrayType>()
+                    .TableName(tableName)
+                    .PartitionKey(u => u.Id));
+            var table = new Table<EntityWithArrayType>(session, config);
+            var entityList = EntityWithArrayType.GetDefaultEntityList();
+
+            return new Tuple<Table<EntityWithArrayType>, List<EntityWithArrayType>>(table, entityList);
+        }
 
         public static List<EntityWithArrayType> GetDefaultEntityList()
         {
-            List<EntityWithArrayType> entityList = new List<EntityWithArrayType>();
-            for (int i = 0; i < DefaultListLength; i++)
+            var entityList = new List<EntityWithArrayType>();
+            for (var i = 0; i < EntityWithArrayType.DefaultListLength; i++)
             {
-                entityList.Add(GetRandomInstance(i));
+                entityList.Add(EntityWithArrayType.GetRandomInstance(i));
             }
             return entityList;
         }
 
         public static EntityWithArrayType GetRandomInstance(int seed = 1)
         {
-            EntityWithArrayType entity = new EntityWithArrayType();
+            var entity = new EntityWithArrayType();
             entity.Id = Guid.NewGuid().ToString();
             entity.ArrayType = new string[] { seed.ToString() };
             return entity;
@@ -53,9 +81,9 @@ namespace Cassandra.IntegrationTests.Linq.Structures
 
         public EntityWithArrayType Clone()
         {
-            EntityWithArrayType entity = new EntityWithArrayType();
+            var entity = new EntityWithArrayType();
             entity.Id = Id;
-            List<string> strList = new List<string>();
+            var strList = new List<string>();
             strList.AddRange(ArrayType);
             entity.ArrayType = strList.ToArray();
             return entity;

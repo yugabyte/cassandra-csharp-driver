@@ -1,13 +1,31 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Cassandra.Data.Linq;
 using Cassandra.Mapping;
+using Cassandra.Metrics.Internal;
 using Cassandra.Tasks;
 using Cassandra.Tests.Mapping.Pocos;
 using Cassandra.Tests.Mapping.TestData;
 using Moq;
+
 using NUnit.Framework;
 
 namespace Cassandra.Tests.Mapping.Linq
@@ -16,14 +34,22 @@ namespace Cassandra.Tests.Mapping.Linq
     {
         private ISession GetSession(RowSet result)
         {
+            var clusterMock = new Mock<ICluster>();
+            clusterMock.Setup(c => c.Configuration).Returns(new Configuration());
+
             var sessionMock = new Mock<ISession>(MockBehavior.Strict);
             sessionMock.Setup(s => s.Keyspace).Returns<string>(null);
             sessionMock
                 .Setup(s => s.ExecuteAsync(It.IsAny<IStatement>()))
                 .Returns(TestHelper.DelayedTask(result, 200))
                 .Verifiable();
+            sessionMock
+                .Setup(s => s.ExecuteAsync(It.IsAny<IStatement>(), It.IsAny<string>()))
+                .Returns(TestHelper.DelayedTask(result, 200))
+                .Verifiable();
             sessionMock.Setup(s => s.PrepareAsync(It.IsAny<string>())).Returns(TaskHelper.ToTask(GetPrepared("Mock query")));
             sessionMock.Setup(s => s.BinaryProtocolVersion).Returns(2);
+            sessionMock.Setup(s => s.Cluster).Returns(clusterMock.Object);
             return sessionMock.Object;
         }
 
@@ -98,28 +124,36 @@ namespace Cassandra.Tests.Mapping.Linq
         [Test]
         public void Linq_CqlQuery_ExecutePaged_Maps_SingleValues()
         {
-            var rs = TestDataHelper.GetSingleColumnRowSet("int_val", new [] {100, 200, 300});
+            var rs = TestDataHelper.GetSingleColumnRowSet("int_val", new[] { 100, 200, 300 });
             rs.AutoPage = false;
             rs.PagingState = new byte[] { 2, 2, 2 };
             var table = new Table<int>(GetSession(rs));
-            IPage<int> page = table.SetPagingState(new byte[] { 1, 1, 1}).ExecutePaged();
+            IPage<int> page = table.SetPagingState(new byte[] { 1, 1, 1 }).ExecutePaged();
             CollectionAssert.AreEqual(table.PagingState, page.CurrentPagingState);
             CollectionAssert.AreEqual(rs.PagingState, page.PagingState);
-            CollectionAssert.AreEqual(new [] { 100, 200, 300}, page.ToArray(), new TestHelper.PropertyComparer());
+            CollectionAssert.AreEqual(new[] { 100, 200, 300 }, page.ToArray(), new TestHelper.PropertyComparer());
         }
 
         [Test]
         public void Linq_CqlQuery_Automatically_Pages()
         {
             const int pageLength = 100;
+            var clusterMock = new Mock<ICluster>();
+            clusterMock.Setup(c => c.Configuration).Returns(new Configuration());
             var rs = TestDataHelper.GetSingleColumnRowSet("int_val", Enumerable.Repeat(1, pageLength).ToArray());
             BoundStatement stmt = null;
             var sessionMock = new Mock<ISession>(MockBehavior.Strict);
+            sessionMock.Setup(s => s.Cluster).Returns(clusterMock.Object);
             sessionMock.Setup(s => s.Keyspace).Returns<string>(null);
             sessionMock
                 .Setup(s => s.ExecuteAsync(It.IsAny<BoundStatement>()))
                 .Returns(TestHelper.DelayedTask(rs))
                 .Callback<IStatement>(s => stmt = (BoundStatement)s)
+                .Verifiable();
+            sessionMock
+                .Setup(s => s.ExecuteAsync(It.IsAny<BoundStatement>(), It.IsAny<string>()))
+                .Returns(TestHelper.DelayedTask(rs))
+                .Callback<IStatement, string>((s, profile) => stmt = (BoundStatement)s)
                 .Verifiable();
             sessionMock.Setup(s => s.PrepareAsync(It.IsAny<string>())).Returns(TaskHelper.ToTask(GetPrepared("Mock query")));
             sessionMock.Setup(s => s.BinaryProtocolVersion).Returns(2);
@@ -131,10 +165,10 @@ namespace Cassandra.Tests.Mapping.Linq
                 var rs2 = TestDataHelper.GetSingleColumnRowSet("int_val", Enumerable.Repeat(1, pageLength).ToArray());
                 if (++counter < 2)
                 {
-                    rs2.PagingState = new byte[] {0, 0, (byte) counter};
+                    rs2.PagingState = new byte[] { 0, 0, (byte)counter };
                 }
                 return Task.FromResult(rs2);
-            }, int.MaxValue);
+            }, int.MaxValue, Mock.Of<IMetricsManager>());
             var table = new Table<int>(sessionMock.Object);
             IEnumerable<int> results = table.Execute();
             Assert.True(stmt.AutoPage);

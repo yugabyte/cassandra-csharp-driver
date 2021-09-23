@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
 // Copyright (c) 2015 Microsoft
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -245,7 +245,6 @@ namespace Microsoft.IO
             else
             {
                 // We're being finalized.
-#if !NETCORE
                 if (AppDomain.CurrentDomain.IsFinalizingForUnload())
                 {
                     // If we're being finalized because of a shutdown, don't go any further.
@@ -254,7 +253,6 @@ namespace Microsoft.IO
                     base.Dispose(disposing);
                     return;
                 }
-#endif
                 this.memoryManager.ReportStreamFinalized();
             }
 
@@ -277,8 +275,7 @@ namespace Microsoft.IO
 
             base.Dispose(disposing);
         }
-
-#if !NETCORE
+        
         /// <summary>
         /// Equivalent to Dispose
         /// </summary>
@@ -286,7 +283,7 @@ namespace Microsoft.IO
         {
             this.Dispose(true);
         }
-#endif
+
         #endregion
 
         #region MemoryStream overrides
@@ -408,11 +405,7 @@ namespace Microsoft.IO
         /// <remarks>IMPORTANT: Doing a Write() after calling GetBuffer() invalidates the buffer. The old buffer is held onto
         /// until Dispose is called, but the next time GetBuffer() is called, a new buffer from the pool will be required.</remarks>
         /// <exception cref="ObjectDisposedException">Object has been disposed</exception>
-#if !NETCORE
         public override byte[] GetBuffer()
-#else
-        public byte[] GetBuffer()
-#endif
         {
             this.CheckDisposed();
 
@@ -430,7 +423,7 @@ namespace Microsoft.IO
             // it's possible that people will manipulate the buffer directly
             // and set the length afterward. Capacity sets the expectation
             // for the size of the buffer.
-            var newBuffer = this.memoryManager.GetLargeBuffer(this.Capacity, this.tag);
+            var newBuffer = this.memoryManager.GetLargeBuffer(this.Capacity, tag);
 
             // InternalRead will check for existence of largeBuffer, so make sure we
             // don't set it until after we've copied the data.
@@ -796,7 +789,7 @@ namespace Microsoft.IO
             {
                 if (newCapacity > this.largeBuffer.Length)
                 {
-                    var newBuffer = this.memoryManager.GetLargeBuffer(newCapacity, this.tag);
+                    var newBuffer = this.memoryManager.GetLargeBuffer(newCapacity, tag);
                     this.InternalRead(newBuffer, 0, this.length, 0);
                     this.ReleaseLargeBuffer();
                     this.largeBuffer = newBuffer;

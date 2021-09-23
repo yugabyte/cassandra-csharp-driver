@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ namespace Cassandra.Responses
         public const byte OpCode = 0x00;
         public OutputError Output;
 
-        internal ErrorResponse(Frame frame) 
+        internal ErrorResponse(Frame frame)
             : base(frame)
         {
             int errorCode = Reader.ReadInt32();

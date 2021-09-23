@@ -1,50 +1,39 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using Cassandra.MetadataHelpers;
 using Cassandra.Serialization;
 using Cassandra.Tasks;
 using SortOrder = Cassandra.DataCollectionMetadata.SortOrder;
 
 namespace Cassandra
 {
-    internal abstract class SchemaParser
+    internal abstract class SchemaParser : ISchemaParser
     {
         protected const string CompositeTypeName = "org.apache.cassandra.db.marshal.CompositeType";
         private const int TraceMaxAttempts = 5;
         private const int TraceAttemptDelay = 400;
         private const string SelectTraceSessions = "SELECT * FROM system_traces.sessions WHERE session_id = {0}";
         private const string SelectTraceEvents = "SELECT * FROM system_traces.events WHERE session_id = {0}";
-        private static readonly Version Version30 = new Version(3, 0);
-        private static readonly Version Version40 = new Version(4, 0);
-
-        /// <summary>
-        /// Creates a new instance if the currentInstance is not valid for the given Cassandra version
-        /// </summary>
-        public static SchemaParser GetInstance(Version cassandraVersion, Metadata parent,
-                                               Func<string, string, Task<UdtColumnInfo>> udtResolver,
-                                               SchemaParser currentInstance = null)
-        {
-            if (cassandraVersion >= Version40 && !(currentInstance is SchemaParserV3))
-            {
-                return new SchemaParserV3(parent, udtResolver);
-            }
-            if (cassandraVersion >= Version30 && !(currentInstance is SchemaParserV2))
-            {
-                return new SchemaParserV2(parent, udtResolver);
-            }
-            if (cassandraVersion < Version30 && !(currentInstance is SchemaParserV1))
-            {
-                return new SchemaParserV1(parent);
-            }
-            if (currentInstance == null)
-            {
-                throw new ArgumentNullException(nameof(currentInstance));
-            }
-            return currentInstance;
-        }
-
+        
         protected readonly IMetadataQueryProvider Cc;
         protected readonly Metadata Parent;
         protected abstract string SelectAggregates { get; }
@@ -62,36 +51,42 @@ namespace Cassandra
         /// Gets the keyspace metadata
         /// </summary>
         /// <returns>The keyspace metadata or null if not found</returns>
-        public abstract Task<KeyspaceMetadata> GetKeyspace(string name);
+        public abstract Task<KeyspaceMetadata> GetKeyspaceAsync(string name);
 
         /// <summary>
         /// Gets all the keyspaces metadata
         /// </summary>
-        public abstract Task<IEnumerable<KeyspaceMetadata>> GetKeyspaces(bool retry);
+        public abstract Task<IEnumerable<KeyspaceMetadata>> GetKeyspacesAsync(bool retry);
 
-        public abstract Task<TableMetadata> GetTable(string keyspaceName, string tableName);
+        public abstract Task<TableMetadata> GetTableAsync(string keyspaceName, string tableName);
 
-        public abstract Task<MaterializedViewMetadata> GetView(string keyspaceName, string viewName);
+        public abstract Task<MaterializedViewMetadata> GetViewAsync(string keyspaceName, string viewName);
 
-        public Task<ICollection<string>> GetTableNames(string keyspaceName)
+        public async Task<ICollection<string>> GetTableNamesAsync(string keyspaceName)
         {
-            return Cc
-                .QueryAsync(string.Format(SelectTables, keyspaceName), true)
-                .ContinueSync(rs => (ICollection<string>)rs.Select(r => r.GetValue<string>(0)).ToArray());
+            var rs = await Cc.QueryAsync(string.Format(SelectTables, keyspaceName), true).ConfigureAwait(false);
+            return rs.Select(r => r.GetValue<string>(0)).ToArray();
         }
 
-        public abstract Task<FunctionMetadata> GetFunction(string keyspaceName, string functionName, string signatureString);
+        public abstract Task<ICollection<string>> GetKeyspacesNamesAsync();
 
-        public abstract Task<AggregateMetadata> GetAggregate(string keyspaceName, string aggregateName, string signatureString);
+        public abstract Task<FunctionMetadata> GetFunctionAsync(string keyspaceName, string functionName, string signatureString);
 
-        public abstract Task<UdtColumnInfo> GetUdtDefinition(string keyspaceName, string typeName);
+        public abstract Task<AggregateMetadata> GetAggregateAsync(string keyspaceName, string aggregateName, string signatureString);
 
-        internal Task<QueryTrace> GetQueryTrace(QueryTrace trace, HashedWheelTimer timer)
+        public abstract Task<UdtColumnInfo> GetUdtDefinitionAsync(string keyspaceName, string typeName);
+
+        public string ComputeFunctionSignatureString(string[] signature)
         {
-            return GetQueryTrace(trace, timer, 0);
+            return "[" + string.Join(",", signature.Select(s => "'" + s + "'")) + "]";
         }
 
-        private Task<QueryTrace> GetQueryTrace(QueryTrace trace, HashedWheelTimer timer, int attempt)
+        public Task<QueryTrace> GetQueryTraceAsync(QueryTrace trace, HashedWheelTimer timer)
+        {
+            return GetQueryTraceAsync(trace, timer, 0);
+        }
+
+        private Task<QueryTrace> GetQueryTraceAsync(QueryTrace trace, HashedWheelTimer timer, int attempt)
         {
             if (attempt >= TraceMaxAttempts)
             {
@@ -104,7 +99,7 @@ namespace Cassandra
                 .ContinueSync(rs =>
                 {
                     var sessionRow = rs.FirstOrDefault();
-                    if (sessionRow == null || sessionRow.IsNull("duration"))
+                    if (sessionRow == null || sessionRow.IsNull("duration") || sessionRow.IsNull("started_at"))
                     {
                         return null;
                     }
@@ -127,7 +122,7 @@ namespace Cassandra
                 {
                     //Trace session was not loaded
                     return TaskHelper
-                        .ScheduleExecution(() => GetQueryTrace(trace, timer, attempt + 1), timer, TraceAttemptDelay)
+                        .ScheduleExecution(() => GetQueryTraceAsync(trace, timer, attempt + 1), timer, TraceAttemptDelay)
                         .Unwrap();
                 }
                 var eventsQuery = string.Format(SelectTraceEvents, trace.TraceId);
@@ -153,40 +148,30 @@ namespace Cassandra
     /// <summary>
     /// Schema parser for metadata tables for Cassandra versions 2.2 or below
     /// </summary>
-    internal class SchemaParserV1: SchemaParser
+    internal class SchemaParserV1 : SchemaParser
     {
         private static readonly Task<TableMetadata> NullTableTask = TaskHelper.ToTask((TableMetadata)null);
         private const string SelectColumns = "SELECT * FROM system.schema_columns WHERE columnfamily_name='{0}' AND keyspace_name='{1}'";
         private const string SelectKeyspaces = "SELECT * FROM system.schema_keyspaces";
         private const string SelectSingleKeyspace = "SELECT * FROM system.schema_keyspaces WHERE keyspace_name = '{0}'";
         private const string SelectSingleTable = "SELECT * FROM system.schema_columnfamilies WHERE columnfamily_name='{0}' AND keyspace_name='{1}'";
+        private const string SelectKeyspacesNames = "SELECT keyspace_name FROM system.schema_keyspaces";
 
-        protected override string SelectAggregates
-        {
-            get { return "SELECT * FROM system.schema_aggregates WHERE keyspace_name = '{0}' AND aggregate_name = '{1}' AND signature = {2}"; }
-        }
+        protected override string SelectAggregates => "SELECT * FROM system.schema_aggregates WHERE keyspace_name = '{0}' AND aggregate_name = '{1}' AND signature = {2}";
 
-        protected override string SelectFunctions
-        {
-            get { return "SELECT * FROM system.schema_functions WHERE keyspace_name = '{0}' AND function_name = '{1}' AND signature = {2}"; }
-        }
+        protected override string SelectFunctions => "SELECT * FROM system.schema_functions WHERE keyspace_name = '{0}' AND function_name = '{1}' AND signature = {2}";
 
-        protected override string SelectTables
-        {
-            get { return "SELECT columnfamily_name FROM system.schema_columnfamilies WHERE keyspace_name='{0}'"; }
-        }
+        protected override string SelectTables => "SELECT columnfamily_name FROM system.schema_columnfamilies WHERE keyspace_name='{0}'";
 
-        protected override string SelectUdts
-        {
-            get { return "SELECT * FROM system.schema_usertypes WHERE keyspace_name='{0}' AND type_name = '{1}'"; }
-        }
+        protected override string SelectUdts => "SELECT * FROM system.schema_usertypes WHERE keyspace_name='{0}' AND type_name = '{1}'";
+
 
         internal SchemaParserV1(Metadata parent) : base(parent)
         {
-            
+
         }
 
-        private KeyspaceMetadata ParseKeyspaceRow(Row row)
+        private KeyspaceMetadata ParseKeyspaceRow(IRow row)
         {
             if (row == null)
             {
@@ -197,25 +182,33 @@ namespace Cassandra
                 row.GetValue<string>("keyspace_name"),
                 row.GetValue<bool>("durable_writes"),
                 row.GetValue<string>("strategy_class"),
-                Utils.ConvertStringToMapInt(row.GetValue<string>("strategy_options")),
+                Utils.ConvertStringToMap(row.GetValue<string>("strategy_options")),
+                new ReplicationStrategyFactory(),
+                row.ContainsColumn("graph_engine") ? row.GetValue<string>("graph_engine") : null,
                 false);
         }
 
-        public override Task<KeyspaceMetadata> GetKeyspace(string name)
+        public override Task<KeyspaceMetadata> GetKeyspaceAsync(string name)
         {
             return Cc
                 .QueryAsync(string.Format(SelectSingleKeyspace, name), true)
                 .ContinueSync(rs => ParseKeyspaceRow(rs.FirstOrDefault()));
         }
 
-        public override Task<IEnumerable<KeyspaceMetadata>> GetKeyspaces(bool retry)
+        public override Task<IEnumerable<KeyspaceMetadata>> GetKeyspacesAsync(bool retry)
         {
             return Cc
                 .QueryAsync(SelectKeyspaces, retry)
                 .ContinueSync(rs => rs.Select(ParseKeyspaceRow));
         }
+        
+        public override async Task<ICollection<string>> GetKeyspacesNamesAsync()
+        {
+            var rs = await Cc.QueryAsync(SelectKeyspacesNames, true).ConfigureAwait(false);
+            return rs.Select(r => r.GetValue<string>(0)).ToArray();
+        }
 
-        private static SortedDictionary<string, string> GetCompactionStrategyOptions(Row row)
+        private static SortedDictionary<string, string> GetCompactionStrategyOptions(IRow row)
         {
             var result = new SortedDictionary<string, string> { { "class", row.GetValue<string>("compaction_strategy_class") } };
             foreach (var entry in Utils.ConvertStringToMap(row.GetValue<string>("compaction_strategy_options")))
@@ -225,7 +218,7 @@ namespace Cassandra
             return result;
         }
 
-        public override Task<TableMetadata> GetTable(string keyspaceName, string tableName)
+        public override Task<TableMetadata> GetTableAsync(string keyspaceName, string tableName)
         {
             var columns = new Dictionary<string, TableColumn>();
             var partitionKeys = new List<Tuple<int, TableColumn>>();
@@ -251,7 +244,7 @@ namespace Cassandra
                         readRepair = tableMetadataRow.GetValue<double>("read_repair_chance"),
                         compactionOptions = GetCompactionStrategyOptions(tableMetadataRow),
                         compressionParams =
-                            (SortedDictionary<string, string>) Utils.ConvertStringToMap(tableMetadataRow.GetValue<string>("compression_parameters"))
+                            (SortedDictionary<string, string>)Utils.ConvertStringToMap(tableMetadataRow.GetValue<string>("compression_parameters"))
                     };
                     //replicate_on_write column not present in C* >= 2.1
                     if (tableMetadataRow.GetColumn("replicate_on_write") != null)
@@ -272,11 +265,11 @@ namespace Cassandra
                                     Table = row.GetValue<string>("columnfamily_name"),
                                     TypeCode = dataType.TypeCode,
                                     TypeInfo = dataType.TypeInfo,
-                                    #pragma warning disable 618
+#pragma warning disable 618
                                     SecondaryIndexName = row.GetValue<string>("index_name"),
                                     SecondaryIndexType = row.GetValue<string>("index_type"),
                                     SecondaryIndexOptions = Utils.ParseJsonStringMap(row.GetValue<string>("index_options")),
-                                    #pragma warning restore 618
+#pragma warning restore 618
                                     KeyType =
                                         row.GetValue<string>("index_name") != null
                                             ? KeyType.SecondaryIndex
@@ -294,7 +287,7 @@ namespace Cassandra
                                             var sortOrder = dataType.IsReversed ? SortOrder.Descending : SortOrder.Ascending;
                                             clusteringKeys.Add(Tuple.Create(row.GetValue<int?>("component_index") ?? 0, Tuple.Create(col, sortOrder)));
                                             col.KeyType = KeyType.Clustering;
-                                                break;
+                                            break;
                                         case "static":
                                             col.IsStatic = true;
                                             break;
@@ -311,8 +304,7 @@ namespace Cassandra
                                 for (var i = 0; i < partitionKeyNames.Length; i++)
                                 {
                                     var name = partitionKeyNames[i];
-                                    TableColumn c;
-                                    if (!columns.TryGetValue(name, out c))
+                                    if (!columns.TryGetValue(name, out TableColumn c))
                                     {
                                         c = new TableColumn
                                         {
@@ -336,9 +328,8 @@ namespace Cassandra
                                     for (var i = 0; i < clusteringKeyNames.Length; i++)
                                     {
                                         var name = clusteringKeyNames[i];
-                                        TableColumn c;
                                         var dataType = types[i];
-                                        if (!columns.TryGetValue(name, out c))
+                                        if (!columns.TryGetValue(name, out TableColumn c))
                                         {
                                             c = new TableColumn
                                             {
@@ -410,7 +401,7 @@ namespace Cassandra
             return types;
         }
 
-        public override Task<MaterializedViewMetadata> GetView(string keyspaceName, string viewName)
+        public override Task<MaterializedViewMetadata> GetViewAsync(string keyspaceName, string viewName)
         {
             return TaskHelper.FromException<MaterializedViewMetadata>(new NotSupportedException("Materialized views are supported in Cassandra 3.0 or above"));
         }
@@ -421,15 +412,15 @@ namespace Cassandra
         private static IDictionary<string, IndexMetadata> GetIndexesFromColumns(IEnumerable<TableColumn> columns)
         {
             //Use obsolete properties
-            #pragma warning disable 618
+#pragma warning disable 618
             return columns
                 .Where(c => c.SecondaryIndexName != null)
                 .Select(IndexMetadata.FromTableColumn)
                 .ToDictionary(ix => ix.Name);
-            #pragma warning restore 618
+#pragma warning restore 618
         }
 
-        public override Task<UdtColumnInfo> GetUdtDefinition(string keyspaceName, string typeName)
+        public override Task<UdtColumnInfo> GetUdtDefinitionAsync(string keyspaceName, string typeName)
         {
             return Cc
                 .QueryAsync(string.Format(SelectUdts, keyspaceName, typeName), true)
@@ -453,7 +444,7 @@ namespace Cassandra
                 });
         }
 
-        public override Task<FunctionMetadata> GetFunction(string keyspaceName, string functionName, string signatureString)
+        public override Task<FunctionMetadata> GetFunctionAsync(string keyspaceName, string functionName, string signatureString)
         {
             var query = string.Format(SelectFunctions, keyspaceName, functionName, signatureString);
             return Cc
@@ -481,7 +472,7 @@ namespace Cassandra
                 });
         }
 
-        public override Task<AggregateMetadata> GetAggregate(string keyspaceName, string aggregateName, string signatureString)
+        public override Task<AggregateMetadata> GetAggregateAsync(string keyspaceName, string aggregateName, string signatureString)
         {
             var query = string.Format(SelectAggregates, keyspaceName, aggregateName, signatureString);
             return Cc
@@ -509,7 +500,7 @@ namespace Cassandra
                     var initConditionRaw = Deserialize(Cc, row.GetValue<byte[]>("initcond"), aggregate.StateType.TypeCode, aggregate.StateType.TypeInfo);
                     if (initConditionRaw != null)
                     {
-                        aggregate.InitialCondition = initConditionRaw.ToString();   
+                        aggregate.InitialCondition = initConditionRaw.ToString();
                     }
                     return aggregate;
                 });
@@ -521,7 +512,7 @@ namespace Cassandra
             {
                 return null;
             }
-            return cc.Serializer.Deserialize(buffer, 0, buffer.Length, typeCode, typeInfo);
+            return cc.Serializer.GetCurrentSerializer().Deserialize(buffer, 0, buffer.Length, typeCode, typeInfo);
         }
     }
 
@@ -538,75 +529,64 @@ namespace Cassandra
         private const string SelectSingleKeyspace = "SELECT * FROM system_schema.keyspaces WHERE keyspace_name = '{0}'";
         private const string SelectSingleTable = "SELECT * FROM system_schema.tables WHERE table_name='{0}' AND keyspace_name='{1}'";
         private const string SelectSingleView = "SELECT * FROM system_schema.views WHERE view_name='{0}' AND keyspace_name='{1}'";
+        private const string SelectKeyspacesNames = "SELECT keyspace_name FROM system_schema.keyspaces";
 
-        protected override string SelectAggregates
-        {
-            get { return "SELECT * FROM system_schema.aggregates WHERE keyspace_name = '{0}' AND aggregate_name = '{1}' AND argument_types = {2}"; }
-        }
+        protected override string SelectAggregates => "SELECT * FROM system_schema.aggregates WHERE keyspace_name = '{0}' AND aggregate_name = '{1}' AND argument_types = {2}";
 
-        protected override string SelectFunctions
-        {
-            get { return "SELECT * FROM system_schema.functions WHERE keyspace_name = '{0}' AND function_name = '{1}' AND argument_types = {2}"; }
-        }
+        protected override string SelectFunctions => "SELECT * FROM system_schema.functions WHERE keyspace_name = '{0}' AND function_name = '{1}' AND argument_types = {2}";
 
-        protected override string SelectTables
-        {
-            get { return "SELECT table_name FROM system_schema.tables WHERE keyspace_name='{0}'"; }
-        }
+        protected override string SelectTables => "SELECT table_name FROM system_schema.tables WHERE keyspace_name='{0}'";
 
-        protected override string SelectUdts
-        {
-            get { return "SELECT * FROM system_schema.types WHERE keyspace_name='{0}' AND type_name = '{1}'"; }
-        }
-
+        protected override string SelectUdts => "SELECT * FROM system_schema.types WHERE keyspace_name='{0}' AND type_name = '{1}'";
+        
         internal SchemaParserV2(Metadata parent, Func<string, string, Task<UdtColumnInfo>> udtResolver)
             : base(parent)
         {
             _udtResolver = udtResolver;
         }
 
-        private KeyspaceMetadata ParseKeyspaceRow(Row row)
+        private KeyspaceMetadata ParseKeyspaceRow(IRow row)
         {
             var replication = row.GetValue<IDictionary<string, string>>("replication");
             string strategy = null;
-            Dictionary<string, int> strategyOptions = null;
 
             if (replication != null)
             {
                 strategy = replication["class"];
-                strategyOptions = new Dictionary<string, int>();
-                foreach (var kv in replication)
-                {
-                    if (kv.Key == "class")
-                    {
-                        continue;
-                    }
-                    strategyOptions[kv.Key] = Convert.ToInt32(kv.Value);
-                }
             }
+
+            replication?.Remove("class");
 
             return new KeyspaceMetadata(
                 Parent,
                 row.GetValue<string>("keyspace_name"),
                 row.GetValue<bool>("durable_writes"),
                 strategy,
-                strategyOptions);
+                replication,
+                new ReplicationStrategyFactory(),
+                row.ContainsColumn("graph_engine") ? row.GetValue<string>("graph_engine") : null);
         }
 
-        public override async Task<KeyspaceMetadata> GetKeyspace(string name)
+        public override async Task<KeyspaceMetadata> GetKeyspaceAsync(string name)
         {
             var rs = await Cc.QueryAsync(string.Format(SelectSingleKeyspace, name), true).ConfigureAwait(false);
             var row = rs.FirstOrDefault();
             return row != null ? ParseKeyspaceRow(row) : null;
         }
 
-        public override async Task<IEnumerable<KeyspaceMetadata>> GetKeyspaces(bool retry)
+        public override async Task<IEnumerable<KeyspaceMetadata>> GetKeyspacesAsync(bool retry)
         {
             var rs = await Cc.QueryAsync(SelectKeyspaces, retry).ConfigureAwait(false);
             return rs.Select(ParseKeyspaceRow);
         }
+        
+        public override async Task<ICollection<string>> GetKeyspacesNamesAsync()
+        {
+            var rs = await Cc.QueryAsync(SelectKeyspacesNames, true).ConfigureAwait(false);
+            return rs.Select(r => r.GetValue<string>(0)).ToArray();
+        }
 
-        public override async Task<TableMetadata> GetTable(string keyspaceName, string tableName)
+        public override async Task<TableMetadata> GetTableAsync(string keyspaceName, string tableName)
         {
             var getTableTask = Cc.QueryAsync(string.Format(SelectSingleTable, tableName, keyspaceName), true);
             var getColumnsTask = Cc.QueryAsync(string.Format(SelectColumns, tableName, keyspaceName), true);
@@ -624,8 +604,8 @@ namespace Cassandra
                 .ConfigureAwait(false);
         }
 
-        protected async Task<T> ParseTableOrView<T>(Func<Row, T> newInstance, IEnumerable<Row> tableRs,
-                                                    IEnumerable<Row> columnsRs) where T : DataCollectionMetadata
+        protected async Task<T> ParseTableOrView<T>(Func<IRow, T> newInstance, IEnumerable<IRow> tableRs,
+                                                    IEnumerable<IRow> columnsRs) where T : DataCollectionMetadata
         {
             var tableMetadataRow = tableRs.FirstOrDefault();
             if (tableMetadataRow == null)
@@ -661,6 +641,10 @@ namespace Cassandra
                 // Options for virtual tables
                 options = new TableOptions { comment = tableMetadataRow.GetValue<string>("comment") };
             }
+
+            options.NodeSync = tableMetadataRow.GetColumn("nodesync") != null
+                ? tableMetadataRow.GetValue<IDictionary<string, string>>("nodesync")
+                : null;
 
             var columnTasks = columnsRs
                 .Select(async row =>
@@ -734,13 +718,13 @@ namespace Cassandra
             return result;
         }
 
-        public override async Task<MaterializedViewMetadata> GetView(string keyspaceName, string viewName)
+        public override async Task<MaterializedViewMetadata> GetViewAsync(string keyspaceName, string viewName)
         {
             var getTableTask = Cc.QueryAsync(string.Format(SelectSingleView, viewName, keyspaceName), true);
             var getColumnsTask = Cc.QueryAsync(string.Format(SelectColumns, viewName, keyspaceName), true);
 
             var tableRs = await getTableTask.ConfigureAwait(false);
-            var columnsRs = await getColumnsTask.ConfigureAwait(false); 
+            var columnsRs = await getColumnsTask.ConfigureAwait(false);
 
             return await ParseTableOrView(
                 viewRow => new MaterializedViewMetadata(viewName, viewRow.GetValue<string>("where_clause")),
@@ -776,19 +760,18 @@ namespace Cassandra
             }
             clusteringKeys.Clear();
             //remove regular columns and set the static columns to non-static
-            TableColumn valueBlob;
-            if (columns.TryGetValue("value", out valueBlob) && valueBlob.TypeCode == ColumnTypeCode.Blob)
+            if (columns.TryGetValue("value", out TableColumn valueBlob) && valueBlob.TypeCode == ColumnTypeCode.Blob)
             {
                 columns.Remove("value");
             }
         }
 
-        private static IDictionary<string, IndexMetadata> GetIndexes(IEnumerable<Row> rows)
+        private static IDictionary<string, IndexMetadata> GetIndexes(IEnumerable<IRow> rows)
         {
             return rows.Select(IndexMetadata.FromRow).ToDictionary(ix => ix.Name);
         }
 
-        public override Task<UdtColumnInfo> GetUdtDefinition(string keyspaceName, string typeName)
+        public override Task<UdtColumnInfo> GetUdtDefinitionAsync(string keyspaceName, string typeName)
         {
             return Cc
                 .QueryAsync(string.Format(SelectUdts, keyspaceName, typeName), true)
@@ -822,7 +805,7 @@ namespace Cassandra
                 });
         }
 
-        public override Task<AggregateMetadata> GetAggregate(string keyspaceName, string aggregateName, string signatureString)
+        public override Task<AggregateMetadata> GetAggregateAsync(string keyspaceName, string aggregateName, string signatureString)
         {
             var query = string.Format(SelectAggregates, keyspaceName, aggregateName, signatureString);
             return Cc
@@ -857,6 +840,8 @@ namespace Cassandra
                             StateFunction = row.GetValue<string>("state_func"),
                             FinalFunction = row.GetValue<string>("final_func"),
                             InitialCondition = row.GetValue<string>("initcond"),
+                            Deterministic = row.GetColumn("deterministic") != null &&
+                                            row.GetValue<bool>("deterministic"),
                             Signature = argumentTypes,
                             StateType = tasks[0].Result,
                             ReturnType = tasks[1].Result,
@@ -866,7 +851,7 @@ namespace Cassandra
                 });
         }
 
-        public override Task<FunctionMetadata> GetFunction(string keyspaceName, string functionName, string signatureString)
+        public override Task<FunctionMetadata> GetFunctionAsync(string keyspaceName, string functionName, string signatureString)
         {
             var query = string.Format(SelectFunctions, keyspaceName, functionName, signatureString);
             return Cc
@@ -892,7 +877,8 @@ namespace Cassandra
                         {
                             throw ex.InnerException;
                         }
-                        return new FunctionMetadata
+
+                        var result = new FunctionMetadata
                         {
                             Name = row.GetValue<string>("function_name"),
                             KeyspaceName = row.GetValue<string>("keyspace_name"),
@@ -904,6 +890,16 @@ namespace Cassandra
                             ReturnType = tasks[0].Result,
                             ArgumentTypes = tasks.Skip(1).Select(t => t.Result).ToArray()
                         };
+
+                        if (row.GetColumn("deterministic") != null)
+                        {
+                            // DSE 6.0+
+                            result.Deterministic = row.GetValue<bool>("deterministic");
+                            result.Monotonic = row.GetValue<bool>("monotonic");
+                            result.MonotonicOn = row.GetValue<string[]>("monotonic_on");
+                        }
+
+                        return result;
                     });
                 });
         }
@@ -921,6 +917,7 @@ namespace Cassandra
             "SELECT * FROM system_virtual_schema.tables WHERE keyspace_name = '{0}' AND table_name='{1}'";
         private const string SelectVirtualColumns =
             "SELECT * FROM system_virtual_schema.columns WHERE keyspace_name = '{0}' AND table_name='{1}'";
+        private const string SelectVirtualKeyspaceNames = "SELECT keyspace_name FROM system_virtual_schema.keyspaces";
 
         internal SchemaParserV3(Metadata parent, Func<string, string, Task<UdtColumnInfo>> udtResolver)
             : base(parent, udtResolver)
@@ -928,16 +925,16 @@ namespace Cassandra
 
         }
 
-        public override async Task<KeyspaceMetadata> GetKeyspace(string name)
+        public override async Task<KeyspaceMetadata> GetKeyspaceAsync(string name)
         {
-            var ks = await base.GetKeyspace(name).ConfigureAwait(false);
+            var ks = await base.GetKeyspaceAsync(name).ConfigureAwait(false);
             if (ks != null)
             {
                 return ks;
             }
 
             // Maybe its a virtual keyspace
-            IEnumerable<Row> rs;
+            IEnumerable<IRow> rs;
             try
             {
                 rs = await Cc.QueryAsync(string.Format(SelectSingleVirtualKeyspace, name), true)
@@ -953,7 +950,7 @@ namespace Cassandra
             return row != null ? ParseVirtualKeyspaceRow(row) : null;
         }
 
-        private KeyspaceMetadata ParseVirtualKeyspaceRow(Row row)
+        private KeyspaceMetadata ParseVirtualKeyspaceRow(IRow row)
         {
             return new KeyspaceMetadata(
                 Parent,
@@ -961,18 +958,20 @@ namespace Cassandra
                 true,
                 null,
                 null,
+                new ReplicationStrategyFactory(),
+                row.ContainsColumn("graph_engine") ? row.GetValue<string>("graph_engine") : null,
                 true);
         }
 
-        public override async Task<IEnumerable<KeyspaceMetadata>> GetKeyspaces(bool retry)
+        public override async Task<IEnumerable<KeyspaceMetadata>> GetKeyspacesAsync(bool retry)
         {
             // Start the task to get the keyspaces in parallel
-            var keyspacesTask = base.GetKeyspaces(retry);
+            var keyspacesTask = base.GetKeyspacesAsync(retry);
             var virtualKeyspaces = Enumerable.Empty<KeyspaceMetadata>();
 
             try
             {
-                var rs = await Cc.QueryAsync(SelectVirtualKeyspaces, retry).ConfigureAwait(false);
+                var rs = await Cc.QueryAsync(SchemaParserV3.SelectVirtualKeyspaces, retry).ConfigureAwait(false);
                 virtualKeyspaces = rs.Select(ParseVirtualKeyspaceRow);
             }
             catch (InvalidQueryException)
@@ -985,16 +984,38 @@ namespace Cassandra
             // Yield the keyspaces followed by the virtual keyspaces
             return keyspaces.Concat(virtualKeyspaces);
         }
-
-        public override async Task<TableMetadata> GetTable(string keyspaceName, string tableName)
+        
+        public override async Task<ICollection<string>> GetKeyspacesNamesAsync()
         {
-            var table = await base.GetTable(keyspaceName, tableName).ConfigureAwait(false);
+            // Start the task to get the keyspace names in parallel
+            var keyspacesTask = base.GetKeyspacesNamesAsync();
+            var virtualKeyspaces = Enumerable.Empty<string>();
+
+            try
+            {
+                var rs = await Cc.QueryAsync(SelectVirtualKeyspaceNames, true).ConfigureAwait(false);
+                virtualKeyspaces = rs.Select(r => r.GetValue<string>(0));
+            }
+            catch (InvalidQueryException)
+            {
+                // Incorrect version reported by the server: virtual keyspaces/tables are not yet supported
+            }
+
+            var keyspaces = await keyspacesTask.ConfigureAwait(false);
+
+            // Yield the keyspaces followed by the virtual keyspaces
+            return keyspaces.Concat(virtualKeyspaces).ToArray();
+        }
+
+        public override async Task<TableMetadata> GetTableAsync(string keyspaceName, string tableName)
+        {
+            var table = await base.GetTableAsync(keyspaceName, tableName).ConfigureAwait(false);
             if (table != null)
             {
                 return table;
             }
 
-            IEnumerable<Row> tableRs;
+            IEnumerable<IRow> tableRs;
             try
             {
                 // Maybe its a virtual table

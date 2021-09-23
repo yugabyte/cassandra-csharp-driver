@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Cassandra.Metrics.Internal;
 using Cassandra.Tasks;
 
 // ReSharper disable DoNotCallOverridableMethodsInConstructor
@@ -59,6 +60,7 @@ namespace Cassandra
         private volatile Task _currentFetchNextPageTask;
         private volatile int _pageSyncAbortTimeout = Timeout.Infinite;
         private volatile bool _autoPage;
+        private volatile IMetricsManager _metricsManager;
 
         /// <summary>
         /// Determines if when dequeuing, it will automatically fetch the following result pages.
@@ -72,7 +74,7 @@ namespace Cassandra
         /// <summary>
         /// Sets the method that is called to get the next page.
         /// </summary>
-        internal void SetFetchNextPageHandler(Func<byte[], Task<RowSet>> handler, int pageSyncAbortTimeout)
+        internal void SetFetchNextPageHandler(Func<byte[], Task<RowSet>> handler, int pageSyncAbortTimeout, IMetricsManager metricsManager)
         {
             if (_fetchNextPage != null)
             {
@@ -80,6 +82,7 @@ namespace Cassandra
             }
             _fetchNextPage = handler;
             _pageSyncAbortTimeout = pageSyncAbortTimeout;
+            _metricsManager = metricsManager;
         }
 
         /// <summary>
@@ -308,7 +311,7 @@ namespace Cassandra
         /// </summary>
         protected virtual void PageNext()
         {
-            TaskHelper.WaitToComplete(FetchMoreResultsAsync(), _pageSyncAbortTimeout);
+            TaskHelper.WaitToCompleteWithMetrics(_metricsManager, FetchMoreResultsAsync(), _pageSyncAbortTimeout);
         }
 
         /// <summary>

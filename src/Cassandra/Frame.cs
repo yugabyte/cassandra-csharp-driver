@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -16,58 +16,39 @@
 
 using System;
 using System.IO;
+using Cassandra.Requests;
 using Cassandra.Serialization;
 
 namespace Cassandra
 {
     internal class Frame
     {
-        private readonly Stream _body;
-        private readonly Serializer _serializer;
-        private readonly FrameHeader _header;
-
         /// <summary>
         /// The 8 byte protocol header
         /// </summary>
-        public FrameHeader Header
-        {
-            get { return _header; }
-        }
+        public FrameHeader Header { get; }
 
         /// <summary>
         /// A stream containing the frame body
         /// </summary>
-        public Stream Body
-        {
-            get { return _body; }
-        }
+        public Stream Body { get; }
 
         /// <summary>
         /// Gets the serializer instance to be used for this frame
         /// </summary>
-        public Serializer Serializer
-        {
-            get { return _serializer; }
-        }
+        public ISerializer Serializer { get; }
 
-        public Frame(FrameHeader header, Stream body, Serializer serializer)
-        {
-            if (header == null)
-            {
-                throw new ArgumentNullException("header");
-            }
-            if (body == null)
-            {
-                throw new ArgumentNullException("body");
-            }
-            if (serializer == null)
-            {
-                throw new ArgumentNullException("serializer");
-            }
+        /// <summary>
+        /// Metadata to parse the result. Can be null.
+        /// </summary>
+        public ResultMetadata ResultMetadata { get; }
 
-            _header = header;
-            _body = body;
-            _serializer = serializer;
+        public Frame(FrameHeader header, Stream body, ISerializer serializer, ResultMetadata resultMetadata)
+        {
+            Header = header ?? throw new ArgumentNullException(nameof(header));
+            Body = body ?? throw new ArgumentNullException(nameof(body));
+            Serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            ResultMetadata = resultMetadata;
         }
     }
 }

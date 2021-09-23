@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -20,11 +20,12 @@ using System.Threading;
 using Cassandra.IntegrationTests.Policies.Util;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 
 namespace Cassandra.IntegrationTests.Policies.Tests
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class ReconnectionPolicyTests : TestGlobals
     {
         private PolicyTestTools _policyTestTools = null;
@@ -43,7 +44,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         [Test]
         public void ExponentialReconnectionPolicyTest()
         {
-            var builder = Cluster.Builder().WithReconnectionPolicy(new ExponentialReconnectionPolicy(2*1000, 5*60*1000));
+            var builder = ClusterBuilder().WithReconnectionPolicy(new ExponentialReconnectionPolicy(2*1000, 5*60*1000));
 
             // Ensure that ExponentialReconnectionPolicy is what we should be testing
             if (!(builder.GetConfiguration().Policies.ReconnectionPolicy is ExponentialReconnectionPolicy))
@@ -112,7 +113,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
         [Test]
         public void ConstantReconnectionPolicyTest()
         {
-            Builder builder = Cluster.Builder().WithReconnectionPolicy(new ConstantReconnectionPolicy(25*1000));
+            Builder builder = ClusterBuilder().WithReconnectionPolicy(new ConstantReconnectionPolicy(25*1000));
 
             // Ensure that ConstantReconnectionPolicy is what we should be testing
             if (!(builder.GetConfiguration().Policies.ReconnectionPolicy is ConstantReconnectionPolicy))
@@ -196,7 +197,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                     _policyTestTools.ResetCoordinators();
 
                     // Ensure the time when the query completes successfully is what was expected
-                    Assert.True(retryTime - 6 < elapsedSeconds && elapsedSeconds < retryTime + 6, String.Format("Waited {0} seconds instead an expected {1} seconds wait", elapsedSeconds, retryTime));
+                    Assert.True(retryTime - 6 < elapsedSeconds && elapsedSeconds < retryTime + 6, string.Format("Waited {0} seconds instead an expected {1} seconds wait", elapsedSeconds, retryTime));
                 }
                 catch (NoHostAvailableException)
                 {
@@ -249,7 +250,7 @@ namespace Cassandra.IntegrationTests.Policies.Tests
                         _policyTestTools.ResetCoordinators();
 
                         // Ensure the time when the query completes successfully is what was expected
-                        Assert.True(retryTime - 3 < elapsedSeconds && elapsedSeconds < retryTime + 3, String.Format("Waited {0} seconds instead an expected {1} seconds wait", elapsedSeconds, retryTime));
+                        Assert.True(retryTime - 3 < elapsedSeconds && elapsedSeconds < retryTime + 3, string.Format("Waited {0} seconds instead an expected {1} seconds wait", elapsedSeconds, retryTime));
                     }
                     catch (NoHostAvailableException)
                     {

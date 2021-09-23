@@ -1,9 +1,21 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.Linq;
-using System.Text;
 using Cassandra.Data.Linq;
 using Cassandra.Mapping;
 using Cassandra.Tests.Mapping.Pocos;
@@ -407,6 +419,26 @@ namespace Cassandra.Tests.Mapping.Linq
             Assert.NotNull(statement);
             CollectionAssert.AreEquivalent(new object[] {value, id, list}, statement.QueryValues);
             Assert.AreEqual(expectedQuery, statement.PreparedStatement.Cql);
+        }
+        
+        private class TestObjectStaticProperty
+        {
+            public static string Property => "static";
+        }
+
+        [Test]
+        public void StaticPropertyAccess_Test()
+        {
+            var table = new Table<LinqDecoratedWithStringCkEntity>(GetSession((_, __) => { }));
+
+            var cql = table.Select(t => new LinqDecoratedWithStringCkEntity
+            {
+                pk = TestObjectStaticProperty.Property,
+                ck1 = TestObjectStaticProperty.Property
+            }).Update().GetCql(out var parameters);
+
+            Assert.That(parameters, Is.EquivalentTo(new[] { "static", "static" }));
+            Assert.AreEqual(@"UPDATE ""x_ts"" SET ""x_pk"" = ?, ""x_ck1"" = ?", cql);
         }
     }
 }

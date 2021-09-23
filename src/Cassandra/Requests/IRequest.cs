@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 //   limitations under the License.
 //
 
+using System.Collections.Generic;
 using System.IO;
 using Cassandra.Serialization;
 
@@ -21,9 +22,22 @@ namespace Cassandra.Requests
 {
     internal interface IRequest
     {
+        bool TracingEnabled { get; }
+
+        /// <summary>
+        /// Gets or sets the custom payload to be set with this request
+        /// </summary>
+        IDictionary<string, byte[]> Payload { get; }
+
         /// <summary>
         /// Writes the frame for this request on the provided stream
         /// </summary>
-        int WriteFrame(short streamId, MemoryStream stream, Serializer serializer);
+        int WriteFrame(short streamId, MemoryStream stream, ISerializer connectionSerializer);
+
+        /// <summary>
+        /// Result Metadata to parse the response rows. Only EXECUTE requests set this value so it will be null
+        /// for other types of requests.
+        /// </summary>
+        ResultMetadata ResultMetadata { get; }
     }
 }

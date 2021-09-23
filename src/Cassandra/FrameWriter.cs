@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -13,10 +13,10 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //
+
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using Cassandra.Serialization;
 
@@ -28,7 +28,7 @@ namespace Cassandra
     internal class FrameWriter
     {
         private readonly MemoryStream _stream;
-        private readonly Serializer _serializer;
+        private readonly ISerializer _serializer;
         private readonly long _offset;
         private readonly ProtocolVersion _version;
 
@@ -37,7 +37,7 @@ namespace Cassandra
             get { return _stream.Length; }
         }
 
-        internal Serializer Serializer
+        internal ISerializer Serializer
         {
             get { return _serializer; }
         }
@@ -53,7 +53,7 @@ namespace Cassandra
             return buffer;
         }
 
-        public FrameWriter(MemoryStream stream, Serializer serializer)
+        public FrameWriter(MemoryStream stream, ISerializer serializer)
         {
             _stream = stream;
             _serializer = serializer;
@@ -132,7 +132,7 @@ namespace Cassandra
                 WriteInt32(-1);
                 return;
             }
-            if (buffer == Serializer.UnsetBuffer)
+            if (buffer == Serialization.SerializerManager.UnsetBuffer)
             {
                 WriteInt32(-2);
                 return;
@@ -227,7 +227,7 @@ namespace Cassandra
             //Set the length in the header
             //MemoryStream implementation length and offset are ints, so cast is safe
             var frameLength = Convert.ToInt32(_stream.Length - _offset);
-            var lengthBytes = BeConverter.GetBytes(frameLength - FrameHeader.GetSize(_version));
+            var lengthBytes = BeConverter.GetBytes(frameLength - _version.GetHeaderSize());
             //The length could start at the 4th or 5th position
             long lengthOffset = 4;
             if (_version.Uses2BytesStreamIds())

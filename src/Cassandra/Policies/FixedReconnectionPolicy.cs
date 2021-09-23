@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,10 +14,7 @@
 //   limitations under the License.
 //
 
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System;
 
 namespace Cassandra
 {
@@ -44,6 +41,11 @@ namespace Cassandra
             }
             _delays = delays;
         }
+
+        /// <summary>
+        /// Gets a copy of the provided <see cref="_delays"/> array.
+        /// </summary>
+        public long[] Delays => (long[])_delays.Clone();
 
         public IReconnectionSchedule NewSchedule()
         {

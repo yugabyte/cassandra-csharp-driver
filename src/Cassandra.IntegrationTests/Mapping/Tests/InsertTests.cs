@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using Cassandra.Mapping;
 using Cassandra.Serialization;
+using Cassandra.Tests;
 using Cassandra.Tests.Mapping.Pocos;
 using NUnit.Framework;
 using HairColor = Cassandra.Tests.Mapping.Pocos.HairColor;
@@ -31,7 +32,7 @@ using HairColor = Cassandra.Tests.Mapping.Pocos.HairColor;
 
 namespace Cassandra.IntegrationTests.Mapping.Tests
 {
-    [Category("short")]
+    [Category(TestCategory.Short), Category(TestCategory.RealCluster)]
     public class InsertTests : SharedClusterTest
     {
         private ISession _session;
@@ -253,7 +254,7 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
 
             var err = Assert.Throws<InvalidQueryException>(() => mapper.Fetch<ClassWithTwoPartitionKeys>("SELECT * from \"" + table.Name + "\" where \"PartitionKey1\" = '" + instance.PartitionKey1 + "'"));
             string expectedErrMsg = "Partition key part(s:)? PartitionKey2 must be restricted (since preceding part is|as other parts are)";
-            if (CassandraVersion >= Version.Parse("3.10"))
+            if (TestClusterManager.CheckCassandraVersion(false, Version.Parse("3.10"), Comparison.GreaterThanOrEqualsTo))
             {
                 expectedErrMsg = "Cannot execute this query as it might involve data filtering and thus may have unpredictable performance. If you want to execute this query despite the performance unpredictability, use ALLOW FILTERING";
             }
@@ -351,7 +352,7 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
             string cqlCamelCasePartitionKey = "SELECT * from " + typeof (lowercaseclassnamepkcamelcase).Name + " where \"SomePartitionKey\" = 'doesntmatter'";
             var ex = Assert.Throws<InvalidQueryException>(() => _session.Execute(cqlCamelCasePartitionKey));
             var expectedErrMsg = "Undefined name SomePartitionKey in where clause";
-            if (CassandraVersion >= Version.Parse("3.10"))
+            if (TestClusterManager.CheckCassandraVersion(false, Version.Parse("3.10"), Comparison.GreaterThanOrEqualsTo))
             {
                 expectedErrMsg = "Undefined column name \"SomePartitionKey\"";
             }
@@ -379,7 +380,7 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
             // Validate expected exception
             var ex = Assert.Throws<InvalidQueryException>(() => cqlClient.Insert(pocoWithCustomAttributes));
             var expectedMessage = "Unknown identifier someotherstring";
-            if (CassandraVersion >= Version.Parse("3.10"))
+            if (TestClusterManager.CheckCassandraVersion(false, Version.Parse("3.10"), Comparison.GreaterThanOrEqualsTo))
             {
                 expectedMessage = "Undefined column name someotherstring";
             }
@@ -543,7 +544,7 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
         public void Insert_Batch_With_Options()
         {
             var anotherKeyspace = TestUtils.GetUniqueKeyspaceName().ToLowerInvariant();
-            using (var cluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint)
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint)
                                                 .WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(30000))
                                                 .Build())
             {
@@ -589,7 +590,7 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
                 var consistency = ConsistencyLevel.All;
                 batch.WithOptions(o => o.SetConsistencyLevel(consistency));
                 //Timestamp for BATCH request is supported in Cassandra 2.1 or above.
-                if (VersionMatch(new TestCassandraVersion(2, 1), TestClusterManager.CassandraVersion))
+                if (TestClusterManager.CassandraVersion > Version.Parse("2.1"))
                 {
                     var timestamp = DateTimeOffset.UtcNow.Subtract(TimeSpan.FromDays(1));
                     batch.WithOptions(o => o.SetTimestamp(timestamp));
@@ -649,6 +650,22 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
             Assert.DoesNotThrow(() => mapper.Insert(new PocoWithEnumCollections { Id = 1001L }));
         }
 
+        [Test]
+        public void Should_InsertWithMapper_When_TableHasReservedKeywords()
+        {
+            Session.CreateKeyspaceIfNotExists("create");
+            var table = new Table<ReservedKeywordPoco>(Session, MappingConfiguration.Global, "add", "create");
+
+            table.CreateIfNotExists();
+            table.Insert(new ReservedKeywordPoco { Batch = "123", Id = "1", NotReserved = "n", Select = "select" }).Execute();
+
+            var result = table.First(poco => poco.Id == "1").Execute();
+            Assert.AreEqual("1", result.Id);
+            Assert.AreEqual("123", result.Batch);
+            Assert.AreEqual("n", result.NotReserved);
+            Assert.AreEqual("select", result.Select);
+        }
+
         /////////////////////////////////////////
         /// Private test classes
         /////////////////////////////////////////
@@ -679,7 +696,5 @@ namespace Cassandra.IntegrationTests.Mapping.Tests
             public string SomeString = "someStringValue";
             public string SomeOtherString = "someOtherStringValue";
         }
-
-
     }
 }

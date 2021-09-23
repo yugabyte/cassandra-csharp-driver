@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 //   limitations under the License.
 //
 
-using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using Cassandra.Tests;
 using NUnit.Framework;
@@ -23,13 +22,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Cassandra.IntegrationTests.TestBase;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class PoolTests : TestGlobals
     {
         protected TraceLevel OriginalTraceLevel;
@@ -59,7 +58,7 @@ namespace Cassandra.IntegrationTests.Core
 
             var policy = new ConstantReconnectionPolicy(int.MaxValue);
             var nonShareableTestCluster = TestClusterManager.GetNonShareableTestCluster(4, 1, true, false);
-            using (var cluster = Cluster.Builder().AddContactPoint(nonShareableTestCluster.InitialContactPoint).WithReconnectionPolicy(policy).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(nonShareableTestCluster.InitialContactPoint).WithReconnectionPolicy(policy).Build())
             {
                 var session = cluster.Connect();
                 // Check query to host distribution before killing nodes
@@ -122,7 +121,7 @@ namespace Cassandra.IntegrationTests.Core
 
             var policy = new ConstantReconnectionPolicy(500);
             var nonShareableTestCluster = TestClusterManager.GetNonShareableTestCluster(4, 1, true, false);
-            using (var cluster = Cluster.Builder().AddContactPoint(nonShareableTestCluster.InitialContactPoint).WithReconnectionPolicy(policy).Build())
+            using (var cluster = ClusterBuilder().AddContactPoint(nonShareableTestCluster.InitialContactPoint).WithReconnectionPolicy(policy).Build())
             {
                 var session = cluster.Connect();
                 // Check query to host distribution before killing nodes
@@ -147,7 +146,7 @@ namespace Cassandra.IntegrationTests.Core
                 {
                     actions.Add(selectAction);
                     //Check that the control connection is using first host
-                    StringAssert.StartsWith(nonShareableTestCluster.ClusterIpPrefix + "1", nonShareableTestCluster.Cluster.Metadata.ControlConnection.Address.ToString());
+                    StringAssert.StartsWith(nonShareableTestCluster.ClusterIpPrefix + "1", nonShareableTestCluster.Cluster.Metadata.ControlConnection.EndPoint.GetHostIpEndPointWithFallback().ToString());
 
                     //Kill some nodes
                     //Including the one used by the control connection
@@ -199,7 +198,7 @@ namespace Cassandra.IntegrationTests.Core
                     Assert.Contains(nonShareableTestCluster.ClusterIpPrefix + "3:" + DefaultCassandraPort, queriedHosts);
                     Assert.Contains(nonShareableTestCluster.ClusterIpPrefix + "4:" + DefaultCassandraPort, queriedHosts);
                     //Check that the control connection is still using last host
-                    StringAssert.StartsWith(nonShareableTestCluster.ClusterIpPrefix + "4", nonShareableTestCluster.Cluster.Metadata.ControlConnection.Address.ToString());
+                    StringAssert.StartsWith(nonShareableTestCluster.ClusterIpPrefix + "4", nonShareableTestCluster.Cluster.Metadata.ControlConnection.EndPoint.GetHostIpEndPointWithFallback().ToString());
                 }
             }
         }
@@ -214,7 +213,7 @@ namespace Cassandra.IntegrationTests.Core
             const int reconnectionDelay = 5000;
             const int waitTime = reconnectionDelay * 3 + 4000;
             var nonShareableTestCluster = TestClusterManager.GetNonShareableTestCluster(2, DefaultMaxClusterCreateRetries, true, false);
-            var cluster = Cluster.Builder()
+            var cluster = ClusterBuilder()
                 .AddContactPoint(nonShareableTestCluster.InitialContactPoint)
                 .WithReconnectionPolicy(new ConstantReconnectionPolicy(reconnectionDelay))
                 .Build();
@@ -268,7 +267,7 @@ namespace Cassandra.IntegrationTests.Core
                 .Callback<IPEndPoint>(invokedEndPoints.Add)
                 .Returns<IPEndPoint>(e => e);
             var testCluster = TestClusterManager.GetNonShareableTestCluster(3);
-            var cluster = Cluster.Builder()
+            var cluster = ClusterBuilder()
                 .AddContactPoint(testCluster.InitialContactPoint)
                 .WithReconnectionPolicy(new ConstantReconnectionPolicy(int.MaxValue))
                 .WithAddressTranslator(translatorMock.Object)
@@ -298,7 +297,7 @@ namespace Cassandra.IntegrationTests.Core
         {
             ITestCluster nonShareableTestCluster = TestClusterManager.GetNonShareableTestCluster(2, 0, true, false);
             nonShareableTestCluster.Stop(2);
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(nonShareableTestCluster.InitialContactPoint)
                                         .Build())
             {
@@ -317,7 +316,7 @@ namespace Cassandra.IntegrationTests.Core
             var index = 0;
             ITestCluster nonShareableTestCluster = TestClusterManager.GetNonShareableTestCluster(2, 0, true, false);
             nonShareableTestCluster.Stop(2);
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .AddContactPoint(nonShareableTestCluster.InitialContactPoint)
                                         .Build())
             {

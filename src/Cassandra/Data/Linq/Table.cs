@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -15,13 +15,11 @@
 //
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
+using System.Threading.Tasks;
 using Cassandra.Mapping;
 using Cassandra.Mapping.Statements;
-using Cassandra.Mapping.TypeConversion;
 
 namespace Cassandra.Data.Linq
 {
@@ -152,7 +150,7 @@ namespace Cassandra.Data.Linq
 
         public void Create()
         {
-            var serializer = _session.Cluster.Metadata.ControlConnection.Serializer;
+            var serializer = _session.Cluster.Metadata.ControlConnection.Serializer.GetCurrentSerializer();
             var cqlQueries = CqlGenerator.GetCreate(serializer, PocoData, Name, KeyspaceName, false);
             foreach (var cql in cqlQueries)
             {
@@ -165,6 +163,28 @@ namespace Cassandra.Data.Linq
             try
             {
                 Create();
+            }
+            catch (AlreadyExistsException)
+            {
+                //do nothing
+            }
+        }
+
+        public async Task CreateAsync()
+        {
+            var serializer = _session.Cluster.Metadata.ControlConnection.Serializer.GetCurrentSerializer();
+            var cqlQueries = CqlGenerator.GetCreate(serializer, PocoData, Name, KeyspaceName, false);
+            foreach (var cql in cqlQueries)
+            {
+                await _session.ExecuteAsync(new SimpleStatement(cql)).ConfigureAwait(false);
+            }
+        }
+
+        public async Task CreateIfNotExistsAsync()
+        {
+            try
+            {
+                await CreateAsync().ConfigureAwait(false);
             }
             catch (AlreadyExistsException)
             {

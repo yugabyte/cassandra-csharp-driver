@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -13,39 +13,41 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //
+
 using System;
 using System.Collections.Generic;
-using System.IO;
-using Cassandra.Serialization;
 
 namespace Cassandra.Requests
 {
-    internal class CredentialsRequest : IRequest
+    internal class CredentialsRequest : BaseRequest
     {
-        public const byte OpCode = 0x04;
+        public const byte CredentialsRequestOpCode = 0x04;
+
         private readonly IDictionary<string, string> _credentials;
 
-        public CredentialsRequest(IDictionary<string, string> credentials)
+        public CredentialsRequest(IDictionary<string, string> credentials) : base(false, null)
         {
             _credentials = credentials;
         }
 
-        public int WriteFrame(short streamId, MemoryStream stream, Serializer serializer)
+        protected override byte OpCode => CredentialsRequest.CredentialsRequestOpCode;
+
+        /// <inheritdoc />
+        public override ResultMetadata ResultMetadata => null;
+
+        protected override void WriteBody(FrameWriter wb)
         {
-            if (serializer.ProtocolVersion != ProtocolVersion.V1)
+            if (wb.Serializer.ProtocolVersion != ProtocolVersion.V1)
             {
                 throw new NotSupportedException("Credentials request is only supported in C* = 1.2.x");
             }
 
-            var wb = new FrameWriter(stream, serializer);
-            wb.WriteFrameHeader(0x00, streamId, OpCode);
-            wb.WriteUInt16((ushort) _credentials.Count);
+            wb.WriteUInt16((ushort)_credentials.Count);
             foreach (var kv in _credentials)
             {
                 wb.WriteString(kv.Key);
                 wb.WriteString(kv.Value);
             }
-            return wb.Close();
         }
     }
 }

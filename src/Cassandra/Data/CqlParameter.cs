@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -122,8 +122,7 @@ namespace Cassandra.Data
         /// The default is an empty string.
         /// </returns>
         public override string SourceColumn { get; set; }
-
-#if !NETCORE
+        
         /// <summary>
         /// Gets or sets the <see cref="T:System.Data.DataRowVersion" />
         /// to use when loading <see cref="P:System.Data.IDataParameter.Value" />.
@@ -133,7 +132,6 @@ namespace Cassandra.Data
         /// The default is Current.
         /// </returns>
         public override DataRowVersion SourceVersion { get; set; }
-#endif
 
         /// <summary>
         /// Gets or sets the value of the parameter. 

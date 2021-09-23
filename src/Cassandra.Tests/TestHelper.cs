@@ -15,20 +15,21 @@
 using NUnit.Framework;
 using System;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Reflection;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+
 using Cassandra.Serialization;
-using IgnoreAttribute = Cassandra.Mapping.Attributes.IgnoreAttribute;
-using Microsoft.DotNet.InternalAbstractions;
+using Cassandra.Tasks;
 using Moq;
+
+// using NUnit.Framework;
+using NUnit.Framework.Internal;
+using IgnoreAttribute = Cassandra.Mapping.Attributes.IgnoreAttribute;
 
 namespace Cassandra.Tests
 {
@@ -47,13 +48,12 @@ namespace Cassandra.Tests
         {
             var columns = new List<CqlColumn>();
             var rowValues = new List<object>();
-            var serializer = new Serializer(ProtocolVersion.MaxSupported);
+            var serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             foreach (var kv in valueMap)
             {
                 if (kv.Value != null)
                 {
-                    IColumnInfo typeInfo;
-                    var typeCode = serializer.GetCqlType(kv.Value.GetType(), out typeInfo);
+                    var typeCode = serializer.GetCqlType(kv.Value.GetType(), out IColumnInfo typeInfo);
                     columns.Add(new CqlColumn { Name = kv.Key, TypeCode = typeCode, TypeInfo = typeInfo });
                 }
                 else
@@ -66,7 +66,7 @@ namespace Cassandra.Tests
             return new Row(rowValues.ToArray(), columns.ToArray(), valueMap.ToDictionary(kv => kv.Key, kv => i++));
         }
 
-        public static IEnumerable<Row> CreateRows(IEnumerable<IDictionary<string, object>> valueMapList)
+        public static IEnumerable<IRow> CreateRows(IEnumerable<IDictionary<string, object>> valueMapList)
         {
             return valueMapList.Select(CreateRow);
         }
@@ -75,18 +75,20 @@ namespace Cassandra.Tests
         {
             var columns = new CqlColumn[rowValues.Count];
             var index = 0;
-            var serializer = new Serializer(ProtocolVersion.MaxSupported);
+            var serializer = new SerializerManager(ProtocolVersion.MaxSupported).GetCurrentSerializer();
             foreach (var kv in rowValues)
             {
                 CqlColumn c;
                 if (kv.Value != null)
                 {
-                    IColumnInfo typeInfo;
-                    var typeCode = serializer.GetCqlType(kv.Value.GetType(), out typeInfo);
+                    var typeCode = serializer.GetCqlType(kv.Value.GetType(), out IColumnInfo typeInfo);
                     c = new CqlColumn
                     {
-                        Name = kv.Key, TypeCode = typeCode, TypeInfo = typeInfo,
-                        Type = kv.Value.GetType(), Index = index
+                        Name = kv.Key,
+                        TypeCode = typeCode,
+                        TypeInfo = typeInfo,
+                        Type = kv.Value.GetType(),
+                        Index = index
                     };
                 }
                 else
@@ -94,7 +96,10 @@ namespace Cassandra.Tests
                     // Default to type Text
                     c = new CqlColumn
                     {
-                        Name = kv.Key, TypeCode = ColumnTypeCode.Text, Type = typeof(string), Index = index
+                        Name = kv.Key,
+                        TypeCode = ColumnTypeCode.Text,
+                        Type = typeof(string),
+                        Index = index
                     };
                 }
                 columns[index++] = c;
@@ -139,7 +144,8 @@ namespace Cassandra.Tests
         }
 
         public static Host CreateHost(string address, string dc = "dc1", string rack = "rack1",
-                                      IEnumerable<string> tokens = null, string cassandraVersion = null)
+                                      IEnumerable<string> tokens = null, string cassandraVersion = null,
+                                      string dseVersion = null)
         {
             var h = new Host(new IPEndPoint(IPAddress.Parse(address), ProtocolOptions.DefaultPort),
                              new ConstantReconnectionPolicy(1));
@@ -148,7 +154,8 @@ namespace Cassandra.Tests
                 { "data_center", dc },
                 { "rack", rack },
                 { "tokens", tokens },
-                { "release_version", cassandraVersion }
+                { "release_version", cassandraVersion },
+                { "dse_version", dseVersion }
             }));
             return h;
         }
@@ -170,6 +177,21 @@ namespace Cassandra.Tests
             public bool ContainsColumn(string name)
             {
                 return _values.ContainsKey(name);
+            }
+
+            public bool IsNull(string name)
+            {
+                return _values[name] == null;
+            }
+
+            public T GetValue<T>(int index)
+            {
+                return (T)_values.ElementAt(index).Value;
+            }
+
+            public CqlColumn GetColumn(string name)
+            {
+                return null;
             }
         }
 
@@ -195,7 +217,7 @@ namespace Cassandra.Tests
         {
             var parallelOptions = new ParallelOptions
             {
-                TaskScheduler = new ThreadPerTaskScheduler(), 
+                TaskScheduler = new ThreadPerTaskScheduler(),
                 MaxDegreeOfParallelism = 1000
             };
             Parallel.Invoke(parallelOptions, actions.ToArray());
@@ -275,13 +297,13 @@ namespace Cassandra.Tests
 
                 if (actualValue is IList)
                 {
-                    CollectionAssert.AreEqual((IList) expectedValue, (IList) actualValue, new SimplifiedComparer(), "Values from property {0} do not match", property.Name);
+                    CollectionAssert.AreEqual((IList)expectedValue, (IList)actualValue, new SimplifiedComparer(), "Values from property {0} do not match", property.Name);
                     continue;
                 }
                 SimplifyValues(ref actualValue, ref expectedValue);
                 Assert.AreEqual(expectedValue, actualValue,
                     // ReSharper disable once PossibleNullReferenceException
-                    String.Format("Property {0}.{1} does not match. Expected: {2} but was: {3}", property.DeclaringType.Name, property.Name, expectedValue, actualValue));
+                    string.Format("Property {0}.{1} does not match. Expected: {2} but was: {3}", property.DeclaringType.Name, property.Name, expectedValue, actualValue));
             }
         }
 
@@ -307,10 +329,7 @@ namespace Cassandra.Tests
         public static async Task<T> DelayedTask<T>(T result, int dueTimeMs = 50, Action afterDelay = null)
         {
             await Task.Delay(dueTimeMs).ConfigureAwait(false);
-            if (afterDelay != null)
-            {
-                afterDelay();
-            }
+            afterDelay?.Invoke();
             return result;
         }
 
@@ -321,7 +340,7 @@ namespace Cassandra.Tests
         }
 
         /// <summary>
-        /// Uses the precision 
+        /// Uses the precision
         /// </summary>
         internal static void SimplifyValues(ref object actualValue, ref object expectedValue)
         {
@@ -423,7 +442,6 @@ namespace Cassandra.Tests
         {
             get
             {
-#if !NETCORE
                 switch (Environment.OSVersion.Platform)
                 {
                     case PlatformID.Win32NT:
@@ -432,9 +450,6 @@ namespace Cassandra.Tests
                         return true;
                 }
                 return false;
-#else
-                return RuntimeEnvironment.OperatingSystemPlatform == Platform.Windows;
-#endif
             }
         }
 
@@ -476,15 +491,19 @@ namespace Cassandra.Tests
             {
                 return;
             }
-            var t1 = action();
-            t1.ContinueWith(t =>
+
+            Task.Run(async () =>
             {
-                if (t.Exception != null)
+                try
                 {
-                    // ReSharper disable once AssignNullToNotNullAttribute
-                    tcs.TrySetException(t.Exception.InnerException);
+                    await action().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
                     return;
                 }
+                
                 var received = counter.IncrementReceived();
                 if (received == maxLength)
                 {
@@ -492,7 +511,7 @@ namespace Cassandra.Tests
                     return;
                 }
                 SendNew(action, tcs, counter, maxLength);
-            }, TaskContinuationOptions.ExecuteSynchronously);
+            }).Forget();
         }
 
         public static async Task<Exception> EatUpException(Task task)
@@ -532,7 +551,7 @@ namespace Cassandra.Tests
 
             var whereColumnsGroup = columnsMatch.Groups[2].Value;
             var whereColumnsRegex = new Regex("([\\w\"]+)");
-            
+
             var whereColumnsNamesMatchCollection = whereColumnsRegex.Matches(whereColumnsGroup);
             var whereCQlColumns = new string[whereColumnsGroup.Count(x => x == '?')];
             var whereCQlColumnsIndex = 0;
@@ -586,7 +605,7 @@ namespace Cassandra.Tests
             {
                 queryColumnsOrder[i] = (i < columns.Length) ? Array.IndexOf(insertColumns, columns[i]) : i;
             }
-            
+
             Assert.AreEqual(expectedValues.Length, cqlParamCount);
             Assert.AreEqual(expectedValues.Length, values.Length);
             for (var i = 0; i < expectedValues.Length; i++)
@@ -613,18 +632,21 @@ namespace Cassandra.Tests
             var i = 0;
             do
             {
-                try
+                using (new TestExecutionContext.IsolatedContext())
                 {
-                    await func().ConfigureAwait(false);
-                    return;
-                }
-                catch (MockException ex1)
-                {
-                    lastException = ex1;
-                }
-                catch (AssertionException ex2)
-                {
-                    lastException = ex2;
+                    try
+                    {
+                        await func().ConfigureAwait(false);
+                        return;
+                    }
+                    catch (MockException ex1)
+                    {
+                        lastException = ex1;
+                    }
+                    catch (AssertionException ex2)
+                    {
+                        lastException = ex2;
+                    }
                 }
 
                 await Task.Delay(msPerRetry).ConfigureAwait(false);
@@ -632,7 +654,7 @@ namespace Cassandra.Tests
 
             throw lastException;
         }
-        
+
         private class SendReceiveCounter
         {
             private int _receiveCounter;
@@ -651,46 +673,31 @@ namespace Cassandra.Tests
 
         internal class TestLoggerHandler : Logger.ILoggerHandler
         {
-            private readonly ConcurrentQueue<Tuple<string, string, object[]>> _messages =
-                new ConcurrentQueue<Tuple<string, string, object[]>>();
+            public long WarningCount = 0;
 
             public void Error(Exception ex)
             {
-                _messages.Enqueue(Tuple.Create("error", (string)null, new object[] { ex }));
             }
 
             public void Error(string message, Exception ex = null)
             {
-                _messages.Enqueue(Tuple.Create("error", message, new object[] { ex }));
             }
 
             public void Error(string message, params object[] args)
             {
-                _messages.Enqueue(Tuple.Create("error", message, args));
             }
 
             public void Verbose(string message, params object[] args)
             {
-                _messages.Enqueue(Tuple.Create("verbose", message, args));
             }
 
             public void Info(string message, params object[] args)
             {
-                _messages.Enqueue(Tuple.Create("info", message, args));
             }
 
             public void Warning(string message, params object[] args)
             {
-                _messages.Enqueue(Tuple.Create("warning", message, args));
-            }
-
-            public IEnumerable<Tuple<string, string, object[]>> DequeueAllMessages()
-            {
-                Tuple<string, string, object[]> value;
-                while (_messages.TryDequeue(out value))
-                {
-                    yield return value;
-                }
+                Interlocked.Increment(ref WarningCount);
             }
         }
 

@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,15 +14,14 @@
 //   limitations under the License.
 //
 
-using System;
 using Cassandra.Mapping;
 
 namespace Cassandra.Data.Linq
 {
     public static class SessionExtensions
     {
-        /// <summary>
-        /// <para>Extension method used for backward-compatibility, use <see cref="Cassandra.Data.Linq.Table{T}(Cassandra.ISession)"/> constructor instead.</para>
+        /// <summary> 
+        /// <para>Deprecated. Extension method used for backward-compatibility, use <see cref="Cassandra.Data.Linq.Table{T}(Cassandra.ISession)"/> constructor instead.</para>
         /// <para>Creates a new instance of the Linq IQueryProvider that represents a table in Cassandra using the mapping configuration provided.</para>
         /// <para>Fluent configuration or attributes can be used to define mapping information.</para>
         /// </summary>
@@ -58,21 +57,6 @@ namespace Cassandra.Data.Linq
                 return new BatchV2(session, batchType);
             }
             return new BatchV1(session, batchType);
-        }
-
-        internal static Configuration GetConfiguration(this ISession session)
-        {
-            Configuration config = null;
-            if (session is Session)
-            {
-                config = ((Session) session).Configuration;
-            }
-            else
-            {
-                //Get the default options
-                config = new Configuration();
-            }
-            return config;
         }
     }
 }

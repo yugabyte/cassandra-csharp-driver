@@ -1,4 +1,20 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -228,12 +244,11 @@ namespace Cassandra.Mapping
             MemberInfo memberInfo = GetPropertyOrField(column);
 
             // Create the ColumnMap for the member if we haven't already
-            ColumnMap columnMap;
-            if (_columnMaps.TryGetValue(memberInfo.Name, out columnMap) == false)
+            if (_columnMaps.TryGetValue(memberInfo.Name, out ColumnMap columnMap) == false)
             {
                 Type memberInfoType = memberInfo as PropertyInfo != null
-                                          ? ((PropertyInfo) memberInfo).PropertyType
-                                          : ((FieldInfo) memberInfo).FieldType;
+                                          ? ((PropertyInfo)memberInfo).PropertyType
+                                          : ((FieldInfo)memberInfo).FieldType;
 
                 columnMap = new ColumnMap(memberInfo, memberInfoType, true);
                 _columnMaps[memberInfo.Name] = columnMap;
@@ -275,21 +290,18 @@ namespace Cassandra.Mapping
         IColumnDefinition ITypeDefinition.GetColumnDefinition(FieldInfo field)
         {
             // If a column map has been defined, return it, otherwise create an empty one
-            ColumnMap columnMap;
-            return _columnMaps.TryGetValue(field.Name, out columnMap) ? columnMap : new ColumnMap(field, field.FieldType, false);
+            return _columnMaps.TryGetValue(field.Name, out ColumnMap columnMap) ? columnMap : new ColumnMap(field, field.FieldType, false);
         }
 
         IColumnDefinition ITypeDefinition.GetColumnDefinition(PropertyInfo property)
         {
             // If a column map has been defined, return it, otherwise create an empty one
-            ColumnMap columnMap;
-            return _columnMaps.TryGetValue(property.Name, out columnMap) ? columnMap : new ColumnMap(property, property.PropertyType, false);
+            return _columnMaps.TryGetValue(property.Name, out ColumnMap columnMap) ? columnMap : new ColumnMap(property, property.PropertyType, false);
         }
 
         private string GetColumnName(MemberInfo memberInfo)
         {
-            ColumnMap columnMap;
-            if (_columnMaps.TryGetValue(memberInfo.Name, out columnMap))
+            if (_columnMaps.TryGetValue(memberInfo.Name, out ColumnMap columnMap))
             {
                 return ((IColumnDefinition)columnMap).ColumnName ?? memberInfo.Name;
             }

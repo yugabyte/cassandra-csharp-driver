@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,22 +14,19 @@
 //   limitations under the License.
 //
 
-using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using Cassandra.Tests;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using Cassandra.IntegrationTests.Policies.Util;
+using Cassandra.IntegrationTests.TestBase;
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [TestFixture, Category("long"), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
+    [TestFixture, Category(TestCategory.Long), Ignore("tests that are not marked with 'short' need to be refactored/deleted")]
     public class StressTests : TestGlobals
     {
         [OneTimeSetUp]
@@ -47,7 +44,7 @@ namespace Cassandra.IntegrationTests.Core
         public void Parallel_Insert_And_Select_Sync()
         {
             var testCluster = TestClusterManager.GetNonShareableTestCluster(3, 1, true, false);
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                                         .WithRetryPolicy(AlwaysRetryRetryPolicy.Instance)
                                         .AddContactPoint(testCluster.InitialContactPoint)
                                         .Build())
@@ -59,15 +56,15 @@ namespace Cassandra.IntegrationTests.Core
                 session.ChangeKeyspace(uniqueKsName);
 
                 var tableName = "table_" + Guid.NewGuid().ToString("N").ToLower();
-                session.Execute(String.Format(TestUtils.CREATE_TABLE_TIME_SERIES, tableName));
+                session.Execute(string.Format(TestUtils.CREATE_TABLE_TIME_SERIES, tableName));
 
-                var insertQuery = String.Format("INSERT INTO {0} (id, event_time, text_sample) VALUES (?, ?, ?)", tableName);
+                var insertQuery = string.Format("INSERT INTO {0} (id, event_time, text_sample) VALUES (?, ?, ?)", tableName);
                 var insertQueryPrepared = session.Prepare(insertQuery);
-                var selectQuery = String.Format("SELECT * FROM {0} LIMIT 10000", tableName);
+                var selectQuery = string.Format("SELECT * FROM {0} LIMIT 10000", tableName);
 
                 const int rowsPerId = 1000;
                 object insertQueryStatement = new SimpleStatement(insertQuery);
-                if (CassandraVersion.Major < 2)
+                if (TestClusterManager.CheckCassandraVersion(false, new Version(2, 0), Comparison.LessThan))
                 {
                     //Use prepared statements all the way as it is not possible to bind on a simple statement with C* 1.2
                     insertQueryStatement = session.Prepare(insertQuery);
@@ -104,7 +101,7 @@ namespace Cassandra.IntegrationTests.Core
         public void Parallel_Insert_And_Select_Sync_With_Nodes_Failing()
         {
             var testCluster = TestClusterManager.GetNonShareableTestCluster(3, 1, true, false);
-            using (var cluster = Cluster.Builder()
+            using (var cluster = ClusterBuilder()
                 .WithRetryPolicy(AlwaysRetryRetryPolicy.Instance)
                 .AddContactPoint(testCluster.InitialContactPoint)
                 .Build())
@@ -116,15 +113,15 @@ namespace Cassandra.IntegrationTests.Core
                 session.ChangeKeyspace(uniqueKsName);
 
                 var tableName = "table_" + Guid.NewGuid().ToString("N").ToLower();
-                session.Execute(String.Format(TestUtils.CREATE_TABLE_TIME_SERIES, tableName));
+                session.Execute(string.Format(TestUtils.CREATE_TABLE_TIME_SERIES, tableName));
 
-                var insertQuery = String.Format("INSERT INTO {0} (id, event_time, text_sample) VALUES (?, ?, ?)", tableName);
+                var insertQuery = string.Format("INSERT INTO {0} (id, event_time, text_sample) VALUES (?, ?, ?)", tableName);
                 var insertQueryPrepared = session.Prepare(insertQuery);
-                var selectQuery = String.Format("SELECT * FROM {0} LIMIT 10000", tableName);
+                var selectQuery = string.Format("SELECT * FROM {0} LIMIT 10000", tableName);
 
                 const int rowsPerId = 100;
                 object insertQueryStatement = new SimpleStatement(insertQuery);
-                if (CassandraVersion.Major < 2)
+                if (TestClusterManager.CheckCassandraVersion(false, new Version(2, 0), Comparison.LessThan))
                 {
                     //Use prepared statements all the way as it is not possible to bind on a simple statement with C* 1.2
                     insertQueryStatement = session.Prepare(insertQuery);
@@ -170,7 +167,7 @@ namespace Cassandra.IntegrationTests.Core
             Trace.TraceInformation("--Initial memory: {0}", start / 1024);
             Action multipleConnect = () =>
             {
-                var cluster = Cluster.Builder().AddContactPoint(testCluster.InitialContactPoint).Build();
+                var cluster = ClusterBuilder().AddContactPoint(testCluster.InitialContactPoint).Build();
                 for (var i = 0; i < 200; i++)
                 {
                     var session = cluster.Connect();

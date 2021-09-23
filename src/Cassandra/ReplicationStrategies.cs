@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -27,7 +27,10 @@ namespace Cassandra
         public const string NetworkTopologyStrategy = "NetworkTopologyStrategy";
         public const string SimpleStrategy = "SimpleStrategy";
 
-
+        // these two are internal because users shouldn't use these
+        internal const string EverywhereStrategy = "EverywhereStrategy";
+        internal const string LocalStrategy = "LocalStrategy";
+        
         /// <summary>
         ///  Returns replication property for SimpleStrategy.
         /// </summary>        

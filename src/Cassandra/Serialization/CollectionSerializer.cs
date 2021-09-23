@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2016 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace Cassandra.Serialization
 {
@@ -54,11 +55,37 @@ namespace Cassandra.Serialization
             var count = DecodeCollectionLength((ProtocolVersion)protocolVersion, buffer, ref offset);
             var childType = GetClrType(childTypeCode.Value, childTypeInfo);
             var result = Array.CreateInstance(childType, count);
+            bool? isNullable = null;
             for (var i = 0; i < count; i++)
             {
                 var itemLength = DecodeCollectionLength((ProtocolVersion)protocolVersion, buffer, ref offset);
-                result.SetValue(DeserializeChild(buffer, offset, itemLength, childTypeCode.Value, childTypeInfo), i);
-                offset += itemLength;
+                if (itemLength < 0)
+                {
+                    if (isNullable == null)
+                    {
+                        isNullable = !childType.GetTypeInfo().IsValueType;
+                    }
+
+                    if (!isNullable.Value)
+                    {
+                        var nullableType = typeof(Nullable<>).MakeGenericType(childType);
+                        var newResult = Array.CreateInstance(nullableType, count);
+                        for (var j = 0; j < i; j++)
+                        {
+                            newResult.SetValue(result.GetValue(j), j);
+                        }
+                        result = newResult;
+                        childType = nullableType;
+                        isNullable = true;
+                    }
+                    
+                    result.SetValue(null, i);
+                }
+                else
+                {
+                    result.SetValue(DeserializeChild(protocolVersion, buffer, offset, itemLength, childTypeCode.Value, childTypeInfo), i);
+                    offset += itemLength;
+                }
             }
             return result;
         }
@@ -69,11 +96,24 @@ namespace Cassandra.Serialization
             var openType = typeof(IEnumerable<>);
             return openType.MakeGenericType(valueType);
         }
+        internal Type GetClrTypeForGraphList(IColumnInfo typeInfo)
+        {
+            var valueType = GetClrTypeForGraph(((ListColumnInfo)typeInfo).ValueTypeCode, ((ListColumnInfo)typeInfo).ValueTypeInfo);
+            var openType = typeof(IEnumerable<>);
+            return openType.MakeGenericType(valueType);
+        }
 
         internal Type GetClrTypeForSet(IColumnInfo typeInfo)
         {
             var valueType = GetClrType(((SetColumnInfo)typeInfo).KeyTypeCode, ((SetColumnInfo)typeInfo).KeyTypeInfo);
             var openType = typeof(IEnumerable<>);
+            return openType.MakeGenericType(valueType);
+        }
+        
+        internal Type GetClrTypeForGraphSet(IColumnInfo typeInfo)
+        {
+            var valueType = GetClrTypeForGraph(((SetColumnInfo)typeInfo).KeyTypeCode, ((SetColumnInfo)typeInfo).KeyTypeInfo);
+            var openType = typeof(ISet<>);
             return openType.MakeGenericType(valueType);
         }
 
@@ -91,7 +131,7 @@ namespace Cassandra.Serialization
                 {
                     throw new ArgumentNullException(null, "Null values are not supported inside collections");
                 }
-                var itemBuffer = SerializeChild(item);
+                var itemBuffer = SerializeChild(protocolVersion, item);
                 var lengthBuffer = EncodeCollectionLength(protocolVersion, itemBuffer.Length);
                 bufferList.AddLast(lengthBuffer);
                 bufferList.AddLast(itemBuffer);

@@ -1,10 +1,21 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.Linq;
-using System.Text;
-using System.Threading;
 using Cassandra.IntegrationTests.TestBase;
 using Cassandra.IntegrationTests.TestClusterManagement;
 using NUnit.Framework;
@@ -17,12 +28,10 @@ namespace Cassandra.IntegrationTests
     /// With a shared session and cluster.
     /// </para>
     /// </summary>
-    [TestFixture]
     public abstract class SharedClusterTest : TestGlobals
     {
-        private static ITestCluster _reusableInstance;
-        private readonly bool _reuse;
-        private readonly List<Cluster> _clusterInstances = new List<Cluster>();
+        protected readonly List<ICluster> ClusterInstances = new List<ICluster>();
+
         /// <summary>
         /// Gets the amount of nodes in the test cluster
         /// </summary>
@@ -41,12 +50,12 @@ namespace Cassandra.IntegrationTests
         /// <summary>
         /// The shared cluster instance of the fixture
         /// </summary>
-        protected Cluster Cluster { get; private set; }
+        protected Cluster Cluster { get; set; }
 
         /// <summary>
         /// The shared Session instance of the fixture
         /// </summary>
-        protected Session Session { get; private set; }
+        protected ISession Session { get; set; }
 
         /// <summary>
         /// It executes the queries provided on test fixture setup.
@@ -62,57 +71,52 @@ namespace Cassandra.IntegrationTests
         /// </summary>
         protected string KeyspaceName { get; set; }
 
-        protected SharedClusterTest(int amountOfNodes = 1, bool createSession = true, bool reuse = true)
+        protected TestClusterOptions Options { get; set; }
+
+        protected SharedClusterTest(
+            int amountOfNodes = 1, bool createSession = true, TestClusterOptions options = null)
         {
-            //only reuse single node clusters
-            _reuse = reuse && amountOfNodes == 1;
             AmountOfNodes = amountOfNodes;
             KeyspaceName = TestUtils.GetUniqueKeyspaceName().ToLowerInvariant();
             CreateSession = createSession;
+            Options = options;
         }
 
+        protected virtual ITestCluster CreateNew(int nodeLength, TestClusterOptions options, bool startCluster)
+        {
+            return TestClusterManager.CreateNew(nodeLength, options, startCluster);
+        }
+        
         [OneTimeSetUp]
         public virtual void OneTimeSetUp()
         {
-            CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
-            CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
-
-            Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-            Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-
-            if (_reuse && _reusableInstance != null && ReferenceEquals(_reusableInstance, TestClusterManager.LastInstance))
-            {
-                Trace.WriteLine("Reusing single node ccm instance");
-                TestCluster = _reusableInstance;
-            }
-            else
-            {
-                TestCluster = TestClusterManager.CreateNew(AmountOfNodes);
-                if (_reuse)
-                {
-                    _reusableInstance = TestCluster;
-                }
-                else
-                {
-                    _reusableInstance = null;
-                }
-            }
+            TestCluster = CreateNew(AmountOfNodes, Options, true);
             if (CreateSession)
             {
-                Cluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint)
-                    .WithQueryTimeout(60000)
-                    .WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(30000))
-                    .Build();
-                Session = (Session) Cluster.Connect();
-                Session.CreateKeyspace(KeyspaceName, null, false);
-                Session.ChangeKeyspace(KeyspaceName);
+                CreateCommonSession();
                 if (SetupQueries != null)
                 {
-                    foreach (var query in SetupQueries)
-                    {
-                        Session.Execute(query);
-                    }
+                    ExecuteSetupQueries();
                 }
+            }
+        }
+        
+        protected virtual void CreateCommonSession()
+        {
+            var builder = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint)
+                                          .WithQueryTimeout(60000)
+                                          .WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(30000).SetReadTimeoutMillis(22000));
+            Cluster = builder.Build();
+            Session = (Session)Cluster.Connect();
+            Session.CreateKeyspace(KeyspaceName, null, false);
+            Session.ChangeKeyspace(KeyspaceName);
+        }
+
+        protected virtual void ExecuteSetupQueries()
+        {
+            foreach (var query in SetupQueries)
+            {
+                Session.Execute(query);
             }
         }
 
@@ -121,25 +125,53 @@ namespace Cassandra.IntegrationTests
         {
             if (Cluster != null)
             {
-                Cluster.Shutdown(1000);   
+                Cluster.Shutdown(TestClusterManager.Executor.GetDefaultTimeout());
             }
             //Shutdown the other instances created by helper methods
-            foreach (var c in _clusterInstances)
+            foreach (var c in ClusterInstances)
             {
-                c.Shutdown(1000);
+                c.Shutdown(TestClusterManager.Executor.GetDefaultTimeout());
             }
+            ClusterInstances.Clear();
+        }
+        
+        protected ISession GetNewTemporarySession(string keyspace = null)
+        {
+            return GetNewTemporaryCluster().Connect(keyspace);
+        }
+        
+        [TearDown]
+        public virtual void TearDown()
+        {
+            foreach (var c in ClusterInstances)
+            {
+                try
+                {
+                    c.Dispose();
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+            ClusterInstances.Clear();
         }
 
-        protected ISession GetNewSession(string keyspace = null)
+        protected virtual ICluster GetNewTemporaryCluster(Action<Builder> build = null)
         {
-            return GetNewCluster().Connect(keyspace);
-        }
-
-        protected Cluster GetNewCluster()
-        {
-            var cluster = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build();
-            _clusterInstances.Add(cluster);
+            var builder = 
+                ClusterBuilder()
+                         .AddContactPoint(TestCluster.InitialContactPoint)
+                         .WithSocketOptions(new SocketOptions().SetConnectTimeoutMillis(30000).SetReadTimeoutMillis(22000));
+            build?.Invoke(builder);
+            var cluster = builder.Build();
+            ClusterInstances.Add(cluster);
             return cluster;
+        }
+
+        protected void SetBaseSession(ISession session)
+        {
+            Session = session;
         }
     }
 }

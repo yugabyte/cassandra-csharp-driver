@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -13,13 +13,12 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //
+
 using System;
 using System.Linq;
 using System.Collections.Generic;
 using System.Net;
-#if !NETCORE
 using System.Runtime.Serialization;
-#endif
 using System.Text;
 
 namespace Cassandra
@@ -32,9 +31,7 @@ namespace Cassandra
     ///  purpose, the list of hosts that have been tried along with the failure cause
     ///  can be retrieved using the <link>#errors</link> method.
     /// </summary>
-#if !NETCORE
     [Serializable]
-#endif
     public class NoHostAvailableException : DriverException
     {
         private const string StartMessage = "All hosts tried for query failed (tried ";
@@ -58,14 +55,20 @@ namespace Cassandra
         {
             Errors = new Dictionary<IPEndPoint, Exception>(0);
         }
-
-#if !NETCORE
+        
+        /// <summary>
+        /// Creates a new instance of NoHostAvailableException with a custom message, an empty error dictionary and an inner exception. 
+        /// </summary>
+        internal NoHostAvailableException(string message, Exception innerException) : base(message, innerException)
+        {
+            Errors = new Dictionary<IPEndPoint, Exception>(0);
+        }
+        
         protected NoHostAvailableException(SerializationInfo info, StreamingContext context) :
             base(info, context)
         {
             
         }
-#endif
 
         private static string CreateMessage(Dictionary<IPEndPoint, Exception> errors)
         {

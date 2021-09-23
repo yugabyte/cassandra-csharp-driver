@@ -1,5 +1,5 @@
 //
-//      Copyright (C) 2012-2014 DataStax Inc.
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 //   limitations under the License.
 //
 
-using System;
 using System.Collections.Generic;
 using Cassandra.Serialization;
 
@@ -40,7 +39,7 @@ namespace Cassandra
         /// <summary>
         /// Gets or sets the serialized used
         /// </summary>
-        internal Serializer Serializer { get; set; }
+        internal ISerializer Serializer { get; set; }
 
         protected RegularStatement()
         {

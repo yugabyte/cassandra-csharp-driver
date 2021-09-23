@@ -1,25 +1,42 @@
-﻿using System;
+//
+//      Copyright (C) DataStax Inc.
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Cassandra.IntegrationTests.TestBase;
-using Cassandra.IntegrationTests.TestClusterManagement;
+using Cassandra.Tests;
 using NUnit.Framework;
 #pragma warning disable 618
 
 namespace Cassandra.IntegrationTests.Core
 {
-    [Category("short")]
+    [Category(TestCategory.Short), Category(TestCategory.RealCluster), Category(TestCategory.ServerApi)]
     public class CollectionsNestedTests : SharedClusterTest
     {
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_Upsert()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlUpdateStr = String.Format("UPDATE {0} set map1=?, map2=?, list1=? where id=?", fqTableName);
+                var cqlUpdateStr = string.Format("UPDATE {0} set map1=?, map2=?, list1=? where id=?", fqTableName);
                 int id = 1;
                 var map1Value = GetMap1Val();
                 var map2Value = GetMap2Val();
@@ -29,7 +46,7 @@ namespace Cassandra.IntegrationTests.Core
                 session.Execute(new SimpleStatement(cqlUpdateStr).Bind(map1Value, map2Value, list1Value, id));
 
                 // Validate the end state of data in C*
-                string cqlSelectStr = String.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
+                string cqlSelectStr = string.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
                 var row = session.Execute(new SimpleStatement(cqlSelectStr)).First();
                 ValidateSelectedNestedFrozenRow(row);
             }
@@ -38,13 +55,14 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_Update()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
-                var cqlUpdateStr = String.Format("UPDATE {0} set map1=?, map2=?, list1=? where id=?", fqTableName);
+                var cqlInsertStr = string.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
+                var cqlUpdateStr = string.Format("UPDATE {0} set map1=?, map2=?, list1=? where id=?", fqTableName);
                 int id = 1;
                 Dictionary<string, IEnumerable<string>> map1Value = GetMap1Val();
                 Dictionary<string, IEnumerable<string>> map1ValueUpdated = GetMap1Val();
@@ -60,14 +78,14 @@ namespace Cassandra.IntegrationTests.Core
                 // Insert data
                 session.Execute(new SimpleStatement(cqlInsertStr).Bind(1, map1Value, map2Value, list1Value));
                 // Validate Data Initial state
-                string cqlSelectStr = String.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
+                string cqlSelectStr = string.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
                 var row = session.Execute(new SimpleStatement(cqlSelectStr)).First();
                 ValidateSelectedNestedFrozenRow(row);
 
                 // Upate data
                 session.Execute(new SimpleStatement(cqlUpdateStr).Bind(map1ValueUpdated, map2ValueUpdated, list1ValueUpdated, id));
                 // Validate the end state of data in C*
-                cqlSelectStr = String.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
+                cqlSelectStr = string.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
                 row = session.Execute(new SimpleStatement(cqlSelectStr)).First();
                 ValidateSelectedNestedFrozenRow(row, map1ValueUpdated, map2ValueUpdated, list1ValueUpdated);
             }
@@ -76,14 +94,15 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_Update_SpecificMapValByKey()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
+                var cqlInsertStr = string.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
                 Dictionary<string, IEnumerable<string>> map1Default = GetMap1Val();
-                var cqlUpdateSingleMapValueStr = String.Format("UPDATE {0} set map1['{1}'] =? where id=?", fqTableName, map1Default.First().Key);
+                var cqlUpdateSingleMapValueStr = string.Format("UPDATE {0} set map1['{1}'] =? where id=?", fqTableName, map1Default.First().Key);
 
                 Dictionary<string, IEnumerable<string>> map1Value = GetMap1Val();
                 List<string> differentMapValue = new List<string> { "somethingdifferent_v1", "somethingdifferent_v2" };
@@ -96,14 +115,14 @@ namespace Cassandra.IntegrationTests.Core
                 // Insert original data
                 session.Execute(new SimpleStatement(cqlInsertStr).Bind(1, map1Value, map2Value, list1Value));
                 // Validate Data Initial state
-                string cqlSelectStr = String.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
+                string cqlSelectStr = string.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
                 var row = session.Execute(new SimpleStatement(cqlSelectStr)).First();
                 ValidateSelectedNestedFrozenRow(row);
 
                 // Update data
                 session.Execute(session.Prepare(cqlUpdateSingleMapValueStr).Bind(differentMapValue, 1));
                 // Validate the end state of data in C*
-                cqlSelectStr = String.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
+                cqlSelectStr = string.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
                 row = session.Execute(new SimpleStatement(cqlSelectStr)).First();
                 ValidateSelectedNestedFrozenRow(row, map1Expected, GetMap2Val(), GetList1Val());
             }
@@ -112,12 +131,13 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_Upsert_IdFoundInSetPart()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("UPDATE {0} set id=?, map1=?, map2=?, list1=? where id=?", fqTableName);
+                var cqlInsertStr = string.Format("UPDATE {0} set id=?, map1=?, map2=?, list1=? where id=?", fqTableName);
                 int id = 1;
                 var map1Value = GetMap1Val();
                 var map2Value = GetMap2Val();
@@ -132,12 +152,13 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_SimpleStatements()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
+                var cqlInsertStr = string.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
                 var map1Value = GetMap1Val();
                 var map2Value = GetMap2Val();
                 var list1Value = GetList1Val();
@@ -146,7 +167,7 @@ namespace Cassandra.IntegrationTests.Core
                 session.Execute(new SimpleStatement(cqlInsertStr).Bind(1, map1Value, map2Value, list1Value));
 
                 // Validate the end state of data in C*
-                string cqlSelectStr = String.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
+                string cqlSelectStr = string.Format("SELECT * FROM {0} WHERE id = 1", fqTableName);
                 var row = session.Execute(new SimpleStatement(cqlSelectStr)).First();
                 ValidateSelectedNestedFrozenRow(row);
             }
@@ -155,12 +176,13 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_PreparedStatements()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
+                var cqlInsertStr = string.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
                 PreparedStatement preparedStatement = session.Prepare(cqlInsertStr);
                 var map1Value = GetMap1Val();
                 var map2Value = GetMap2Val();
@@ -170,7 +192,7 @@ namespace Cassandra.IntegrationTests.Core
                 session.Execute(preparedStatement.Bind(1, map1Value, map2Value, list1Value));
 
                 // Validate the end state of data in C*
-                string cqlSelectStr = String.Format("SELECT id, map1, map2, list1 FROM {0} WHERE id = 1", fqTableName);
+                string cqlSelectStr = string.Format("SELECT id, map1, map2, list1 FROM {0} WHERE id = 1", fqTableName);
                 PreparedStatement preparedSelect = session.Prepare(cqlSelectStr);
                 var row = session.Execute(preparedSelect.Bind(new object[] { })).First();
 
@@ -185,12 +207,13 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_PreparedStatements_ListWithNullValue()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
+                var cqlInsertStr = string.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
                 PreparedStatement preparedStatement = session.Prepare(cqlInsertStr);
                 Dictionary<string, IEnumerable<string>> map1Value = GetMap1Val();
                 var map2Value = GetMap2Val();
@@ -205,12 +228,13 @@ namespace Cassandra.IntegrationTests.Core
         [Test, TestCassandraVersion(2, 1, 3)]
         public void NestedCollections_BatchStatements()
         {
-            using (var session = Cluster.Builder().AddContactPoint(TestCluster.InitialContactPoint).Build().Connect())
+            using (var cluster = ClusterBuilder().AddContactPoint(TestCluster.InitialContactPoint).Build())
             {
+                var session = cluster.Connect();
                 string keyspaceName = TestUtils.GetUniqueKeyspaceName().ToLower();
                 string fqTableName = keyspaceName + "." + TestUtils.GetUniqueKeyspaceName().ToLower();
                 SetupForFrozenNestedCollectionTest(session, keyspaceName, fqTableName);
-                var cqlInsertStr = String.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
+                var cqlInsertStr = string.Format("INSERT INTO {0} (id, map1, map2, list1) VALUES (?, ?, ?, ?)", fqTableName);
                 PreparedStatement preparedStatement = session.Prepare(cqlInsertStr);
                 BatchStatement batchStatement = new BatchStatement();
                 var map1Value = GetMap1Val();
@@ -222,7 +246,7 @@ namespace Cassandra.IntegrationTests.Core
                 session.Execute(batchStatement);
 
                 // Validate the end state of data in C*
-                string cqlSelectStr = String.Format("SELECT id, map1, map2, list1 FROM {0} WHERE id = 1", fqTableName);
+                string cqlSelectStr = string.Format("SELECT id, map1, map2, list1 FROM {0} WHERE id = 1", fqTableName);
                 PreparedStatement preparedSelect = session.Prepare(cqlSelectStr);
                 var row = session.Execute(preparedSelect.Bind(new object[] { })).First();
 
@@ -297,8 +321,8 @@ namespace Cassandra.IntegrationTests.Core
 
         private void SetupForFrozenNestedCollectionTest(ISession session, string keyspaceName, string fqTableName)
         {
-            session.Execute(String.Format("CREATE KEYSPACE IF NOT EXISTS {0} WITH replication = {1};", keyspaceName, "{'class': 'SimpleStrategy', 'replication_factor' : 1}"));
-            session.Execute(String.Format("CREATE TABLE IF NOT EXISTS {0} " +
+            session.Execute(string.Format("CREATE KEYSPACE IF NOT EXISTS {0} WITH replication = {1};", keyspaceName, "{'class': 'SimpleStrategy', 'replication_factor' : 1}"));
+            session.Execute(string.Format("CREATE TABLE IF NOT EXISTS {0} " +
                                           "(id int primary key, " +
                                           "map1 map<text, frozen<list<text>>>," +
                                           "map2 map<int, frozen<map<text, bigint>>>," +

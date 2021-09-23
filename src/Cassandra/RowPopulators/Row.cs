@@ -1,5 +1,5 @@
-﻿//
-//      Copyright (C) 2012-2014 DataStax Inc.
+//
+//      Copyright (C) DataStax Inc.
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using Cassandra.Mapping.TypeConversion;
 
 // ReSharper disable once CheckNamespace
 namespace Cassandra
@@ -132,12 +133,9 @@ namespace Cassandra
         /// </summary>
         public CqlColumn GetColumn(string name)
         {
-            int index;
-            if (!ColumnIndexes.TryGetValue(name, out index))
-            {
-                return null;
-            }
-            return Columns[index];
+            return ColumnIndexes.TryGetValue(name, out var index)
+                ? Columns[index]
+                : null;
         }
 
         /// <summary>
@@ -189,15 +187,15 @@ namespace Cassandra
         public virtual T GetValue<T>(int index)
         {
             //The method is marked virtual to allow to be mocked
-            var type = typeof (T);
+            var type = typeof(T);
             var value = GetValue(type, index);
             //Check that the value is null but the type is not nullable (structs)
             //A little overhead in case of misuse but improved Error message
             if (value == null && default(T) != null)
             {
-                throw new NullReferenceException(String.Format("Cannot convert null to {0} because it is a value type, try using Nullable<{0}>", type.Name));
+                throw new NullReferenceException(string.Format("Cannot convert null to {0} because it is a value type, try using Nullable<{0}>", type.Name));
             }
-            return (T) value;
+            return (T)value;
         }
 
         /// <summary>
@@ -211,7 +209,7 @@ namespace Cassandra
             //The method is marked virtual to allow to be mocked
             if (!ColumnIndexes.ContainsKey(name))
             {
-                throw new ArgumentException(String.Format("Column {0} not found", name));
+                throw new ArgumentException(string.Format("Column {0} not found", name));
             }
             return GetValue<T>(ColumnIndexes[name]);
         }
@@ -235,7 +233,7 @@ namespace Cassandra
                     return TryConvertDictionary((IDictionary)value, column, targetType);
                 case ColumnTypeCode.Timestamp:
                     // The type of the value is DateTimeOffset
-                    if (targetType == typeof (object) || targetType.GetTypeInfo().IsAssignableFrom(typeof(DateTimeOffset)))
+                    if (targetType == typeof(object) || targetType.GetTypeInfo().IsAssignableFrom(typeof(DateTimeOffset)))
                     {
                         return value;
                     }
@@ -261,28 +259,27 @@ namespace Cassandra
             if (targetTypeInfo.IsArray)
             {
                 childTargetType = targetTypeInfo.GetElementType();
-                if (childTargetType.GetTypeInfo().IsAssignableFrom(childType))
-                {
-                    return value;
-                }
-                return GetArray((Array)value, childTargetType, column.TypeInfo);
+                return childTargetType == childType
+                    ? value
+                    : Row.GetArray((Array)value, childTargetType, column.TypeInfo);
             }
             if (Utils.IsIEnumerable(targetType, out childTargetType))
             {
                 var genericTargetType = targetType.GetGenericTypeDefinition();
                 // Is IEnumerable
-                if (!childTargetType.GetTypeInfo().IsAssignableFrom(childType))
+                if (childTargetType != childType)
                 {
                     // Conversion is needed
-                    value = GetArray((Array)value, childTargetType, column.TypeInfo);
+                    value = Row.GetArray((Array)value, childTargetType, column.TypeInfo);
                 }
                 if (genericTargetType == typeof(IEnumerable<>))
                 {
                     // The target type is an interface
                     return value;
                 }
-                if (column.TypeCode == ColumnTypeCode.List || genericTargetType == typeof(List<>) ||
-                    genericTargetType == typeof(IList<>))
+                if (column.TypeCode == ColumnTypeCode.List
+                    || genericTargetType == typeof(List<>)
+                    || TypeConverter.ListGenericInterfaces.Contains(genericTargetType))
                 {
                     // Use List<T> by default when a list is expected and the target type 
                     // is not an object or an array
@@ -325,10 +322,33 @@ namespace Cassandra
                 return result;
             }
             // Other collections
-            var childColumnInfo = ((ICollectionColumnInfo) columnInfo).GetChildType();
+            var childColumnInfo = ((ICollectionColumnInfo)columnInfo).GetChildType();
             var arr = Array.CreateInstance(childTargetType, source.Length);
+            bool? isNullable = null;
             for (var i = 0; i < source.Length; i++)
             {
+                var value = source.GetValue(i);
+                if (value == null)
+                {
+                    if (isNullable == null)
+                    {
+                        isNullable = !childTargetType.GetTypeInfo().IsValueType;
+                    }
+
+                    if (!isNullable.Value)
+                    {
+                        var nullableType = typeof(Nullable<>).MakeGenericType(childTargetType);
+                        var newResult = Array.CreateInstance(nullableType, source.Length);
+                        for (var j = 0; j < i; j++)
+                        {
+                            newResult.SetValue(arr.GetValue(j), j);
+                        }
+                        arr = newResult;
+                        childTargetType = nullableType;
+                        isNullable = true;
+                    }
+                }
+
                 arr.SetValue(TryConvertToType(source.GetValue(i), childColumnInfo, childTargetType), i);
             }
             return arr;
@@ -341,9 +361,7 @@ namespace Cassandra
                 return value;
             }
             var mapColumnInfo = (MapColumnInfo)column.TypeInfo;
-            Type childTargetKeyType;
-            Type childTargetValueType;
-            if (!Utils.IsIDictionary(targetType, out childTargetKeyType, out childTargetValueType))
+            if (!Utils.IsIDictionary(targetType, out Type childTargetKeyType, out Type childTargetValueType))
             {
                 throw new InvalidCastException(string.Format("Unable to cast object of type '{0}' to type '{1}'",
                     value.GetType(), targetType));
@@ -381,6 +399,13 @@ namespace Cassandra
     internal interface IRow
     {
         T GetValue<T>(string name);
+
         bool ContainsColumn(string name);
+
+        bool IsNull(string name);
+
+        T GetValue<T>(int index);
+
+        CqlColumn GetColumn(string name);
     }
 }
