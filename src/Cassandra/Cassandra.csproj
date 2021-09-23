@@ -19,7 +19,7 @@
     <PackageId>YugaByteCassandraCSharpDriver</PackageId>
     <Title>YugaByte C# Driver for YugaByte DB</Title>
     <PackageTags>cassandra;apache;datastax;driver;client;database;nosql;dotnet;netcore;db;yugabyte</PackageTags>
-    <PackageLicenseUrl>https://github.com/yugabyte/cassandra-csharp-driver/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
     <RepositoryUrl>https://github.com/yugabyte/cassandra-csharp-driver</RepositoryUrl>
     <PackageProjectUrl>https://github.com/yugabyte/cassandra-csharp-driver</PackageProjectUrl>
     <LangVersion>7.1</LangVersion>
